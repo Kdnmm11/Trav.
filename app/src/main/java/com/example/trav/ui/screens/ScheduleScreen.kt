@@ -37,6 +37,8 @@ import com.example.trav.ui.theme.NotoSansKR
 import com.example.trav.ui.theme.PlayfairDisplay
 import com.example.trav.ui.viewmodel.ScheduleViewModel
 import com.example.trav.ui.viewmodel.ScheduleViewModelFactory
+import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,6 +51,10 @@ fun ScheduleScreen(
 ) {
     val context = LocalContext.current
     val database = AppDatabase.getDatabase(context)
+
+    val tripDao = database.tripDao()
+    val trip by tripDao.getTrip(tripId).collectAsState(initial = null)
+
     val viewModel: ScheduleViewModel = viewModel(
         key = "schedule_${tripId}_${dayNumber}",
         factory = ScheduleViewModelFactory(database.scheduleDao(), tripId, dayNumber)
@@ -84,8 +90,24 @@ fun ScheduleScreen(
     val stayFontSize = 12.5f
     val infoTextOffset = 0.dp
 
-    // [설정] 날짜 선택 범위 (여기서는 UI 테스트용으로 30일로 설정)
-    val totalDays = 30
+    // 1. 전체 기간 (Pre/Post 포함)
+    val totalDays = remember(trip) {
+        trip?.let {
+            val start = LocalDate.parse(it.startDate)
+            val end = LocalDate.parse(it.endDate)
+            val originalDuration = ChronoUnit.DAYS.between(start, end).toInt() + 1
+            originalDuration + it.preDays + it.postDays
+        } ?: 1
+    }
+
+    // [수정] 2. 순수 여행 기간 (Pre/Post 제외) 계산 - Picker 제한용
+    val tripDuration = remember(trip) {
+        trip?.let {
+            val start = LocalDate.parse(it.startDate)
+            val end = LocalDate.parse(it.endDate)
+            ChronoUnit.DAYS.between(start, end).toInt() + 1
+        } ?: 1
+    }
 
     Scaffold(
         containerColor = appBackgroundColor,
@@ -136,7 +158,6 @@ fun ScheduleScreen(
 
                 Spacer(modifier = Modifier.width(12.dp))
 
-                // FAB (일정 추가)
                 FloatingActionButton(
                     onClick = { showScheduleSheet = true },
                     containerColor = Color.Black,
@@ -161,7 +182,6 @@ fun ScheduleScreen(
                 .background(appBackgroundColor)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // 상단 헤더
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -196,7 +216,6 @@ fun ScheduleScreen(
                     }
                 }
 
-                // 일정 리스트
                 if (schedules.isEmpty()) {
                     Spacer(modifier = Modifier.weight(1f))
                     Box(modifier = Modifier.offset(y = fixedListOffsetY)) {
@@ -224,7 +243,6 @@ fun ScheduleScreen(
         }
     }
 
-    // [Edit Schedule Sheet]
     if (selectedSchedule != null) {
         ModalBottomSheet(
             onDismissRequest = { selectedSchedule = null },
@@ -250,7 +268,6 @@ fun ScheduleScreen(
         }
     }
 
-    // [Day Info Sheet] (City 추가 기능, 날짜/시간 분리 적용)
     if (showDayInfoSheet) {
         ModalBottomSheet(
             onDismissRequest = { showDayInfoSheet = false },
@@ -266,6 +283,8 @@ fun ScheduleScreen(
                 initialCheckOutDay = dayInfo?.checkOutDay ?: "",
                 initialCheckOutTime = dayInfo?.checkOutTime ?: "",
                 totalDays = totalDays,
+                // [수정] tripDuration 전달
+                tripDuration = tripDuration,
                 onSave = { city, stay, inDay, inTime, outDay, outTime ->
                     viewModel.saveDayInfo(city, stay, inDay, inTime, outDay, outTime)
                     showDayInfoSheet = false
@@ -275,7 +294,6 @@ fun ScheduleScreen(
         }
     }
 
-    // [Add Schedule Sheet]
     if (showScheduleSheet) {
         ModalBottomSheet(
             onDismissRequest = { showScheduleSheet = false },

@@ -1,6 +1,7 @@
 package com.example.trav.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,7 +17,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -39,16 +39,14 @@ fun AddScheduleSheet(
     var endTime by remember { mutableStateOf("") }
     var title by remember { mutableStateOf("") }
 
-    // [상세 필드]
     var location by remember { mutableStateOf("") }
     var arrivalPlace by remember { mutableStateOf("") }
     var reservationNum by remember { mutableStateOf("") }
     var bookingSource by remember { mutableStateOf("") }
     var memo by remember { mutableStateOf("") }
 
-    // [카테고리] - 기본값 ON
-    var isCategoryEnabled by remember { mutableStateOf(true) }
-    var selectedCategory by remember { mutableStateOf("") }
+    // [수정] 기본 선택값을 "기타"로 설정
+    var selectedCategory by remember { mutableStateOf("기타") }
     var selectedSubCategory by remember { mutableStateOf("") }
 
     var isEndTimeVisible by remember { mutableStateOf(false) }
@@ -90,7 +88,6 @@ fun AddScheduleSheet(
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
                 ) {
-                    // [헤더]
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -103,9 +100,7 @@ fun AddScheduleSheet(
                                 if (title.isNotBlank() && time.isNotBlank()) {
                                     onConfirm(
                                         time, endTime, title, location, memo,
-                                        if(isCategoryEnabled) selectedCategory else "",
-                                        if(isCategoryEnabled) selectedSubCategory else "",
-                                        0.0,
+                                        selectedCategory, selectedSubCategory, 0.0,
                                         arrivalPlace, reservationNum, bookingSource
                                     )
                                 }
@@ -117,108 +112,85 @@ fun AddScheduleSheet(
                         ) { Text("SAVE", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp) }
                     }
 
-                    // 1. Title (맨 위)
                     Text("Title", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
                     Spacer(modifier = Modifier.height(4.dp))
                     InfoTextField(value = title, onValueChange = { title = it }, placeholder = "Schedule Title", imeAction = ImeAction.Next, height = boxHeight, fontSize = fontSize)
 
                     Spacer(modifier = Modifier.height(spacing))
 
-                    // 2. Category (On/Off 스위치 포함)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Category", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-                        Switch(
-                            checked = isCategoryEnabled,
-                            onCheckedChange = { isCategoryEnabled = it },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = Color.Black,
-                                uncheckedThumbColor = Color.Gray,
-                                uncheckedTrackColor = Color.LightGray
-                            ),
-                            modifier = Modifier.graphicsLayer(scaleX = 0.7f, scaleY = 0.7f).height(30.dp)
-                        )
-                    }
+                    Text("Category", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                    Spacer(modifier = Modifier.height(4.dp))
 
-                    if (isCategoryEnabled) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        CategorySelector(
-                            categories = BudgetCategory.mainCategories,
-                            selected = selectedCategory,
-                            onSelect = { selectedCategory = if (selectedCategory == it) "" else it; selectedSubCategory = "" }
-                        )
+                    CategorySelector(
+                        categories = BudgetCategory.mainCategories,
+                        selected = selectedCategory,
+                        onSelect = {
+                            selectedCategory = if (selectedCategory == it) "" else it
+                            selectedSubCategory = ""
+                        }
+                    )
 
-                        if (selectedCategory.isNotBlank()) {
+                    if (selectedCategory.isNotBlank()) {
+                        val subList = BudgetCategory.subCategories[selectedCategory] ?: emptyList()
+                        if (subList.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(4.dp))
                             CategorySelector(
-                                categories = BudgetCategory.subCategories[selectedCategory] ?: emptyList(),
+                                categories = subList,
                                 selected = selectedSubCategory,
                                 onSelect = { selectedSubCategory = if (selectedSubCategory == it) "" else it }
                             )
+                        }
 
-                            Spacer(modifier = Modifier.height(spacing))
+                        Spacer(modifier = Modifier.height(spacing))
 
-                            // [카테고리별 입력 필드] - 시간보다 먼저 나옴 (교통의 경우 출발/도착지 -> 시간 순서)
-                            when (selectedCategory) {
-                                "교통" -> {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text("Departure", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            InfoTextField(value = location, onValueChange = { location = it }, placeholder = "Start", imeAction = ImeAction.Next, height = boxHeight, fontSize = fontSize)
-                                        }
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Icon(Icons.Default.ArrowForward, null, tint = Color.Gray, modifier = Modifier.padding(top = 16.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text("Arrival", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            InfoTextField(value = arrivalPlace, onValueChange = { arrivalPlace = it }, placeholder = "Dest", imeAction = ImeAction.Next, height = boxHeight, fontSize = fontSize)
-                                        }
+                        when (selectedCategory) {
+                            "교통" -> {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Departure", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        InfoTextField(value = location, onValueChange = { location = it }, placeholder = "Start", imeAction = ImeAction.Next, height = boxHeight, fontSize = fontSize)
                                     }
-                                }
-                                "식사" -> {
-                                    Text("Restaurant Location", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    InfoTextField(value = location, onValueChange = { location = it }, placeholder = "Map Location", imeAction = ImeAction.Next, height = boxHeight, fontSize = fontSize)
-                                    Spacer(modifier = Modifier.height(spacing))
-                                    Text("Reservation No.", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    InfoTextField(value = reservationNum, onValueChange = { reservationNum = it }, placeholder = "Optional", imeAction = ImeAction.Next, height = boxHeight, fontSize = fontSize)
-                                }
-                                "관광" -> {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text("Booking Source", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            InfoTextField(value = bookingSource, onValueChange = { bookingSource = it }, placeholder = "e.g. Klook", imeAction = ImeAction.Next, height = boxHeight, fontSize = fontSize)
-                                        }
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text("Res No.", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            InfoTextField(value = reservationNum, onValueChange = { reservationNum = it }, placeholder = "Optional", imeAction = ImeAction.Next, height = boxHeight, fontSize = fontSize)
-                                        }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Icon(Icons.Default.ArrowForward, null, tint = Color.Gray, modifier = Modifier.padding(top = 16.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Arrival", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        InfoTextField(value = arrivalPlace, onValueChange = { arrivalPlace = it }, placeholder = "Dest", imeAction = ImeAction.Next, height = boxHeight, fontSize = fontSize)
                                     }
-                                }
-                                else -> { // 기타
-                                    Text("Location", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    InfoTextField(value = location, onValueChange = { location = it }, placeholder = "Place", imeAction = ImeAction.Next, height = boxHeight, fontSize = fontSize)
                                 }
                             }
+                            "식사" -> {
+                                Text("Restaurant Location", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                InfoTextField(value = location, onValueChange = { location = it }, placeholder = "Map Location", imeAction = ImeAction.Next, height = boxHeight, fontSize = fontSize)
+                                Spacer(modifier = Modifier.height(spacing))
+                                Text("Reservation No.", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                InfoTextField(value = reservationNum, onValueChange = { reservationNum = it }, placeholder = "Optional", imeAction = ImeAction.Next, height = boxHeight, fontSize = fontSize)
+                            }
+                            "관광" -> {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Booking Source", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        InfoTextField(value = bookingSource, onValueChange = { bookingSource = it }, placeholder = "e.g. Klook", imeAction = ImeAction.Next, height = boxHeight, fontSize = fontSize)
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Res No.", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        InfoTextField(value = reservationNum, onValueChange = { reservationNum = it }, placeholder = "Optional", imeAction = ImeAction.Next, height = boxHeight, fontSize = fontSize)
+                                    }
+                                }
+                            }
+                            else -> {}
                         }
-                    } else {
-                        // Category Off일 때는 아무것도 표시 안함 (공백 처리)
                     }
 
                     Spacer(modifier = Modifier.height(spacing))
 
-                    // 3. Time (카테고리 아래로 이동)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -255,7 +227,6 @@ fun AddScheduleSheet(
 
                     Spacer(modifier = Modifier.height(spacing))
 
-                    // 4. Memo
                     Text("Memo", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
                     Spacer(modifier = Modifier.height(4.dp))
                     InfoTextField(value = memo, onValueChange = { memo = it }, placeholder = "Details...", imeAction = ImeAction.Done, height = boxHeight, fontSize = fontSize)

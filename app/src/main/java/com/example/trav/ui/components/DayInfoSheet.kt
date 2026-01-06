@@ -1,8 +1,12 @@
 package com.example.trav.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -11,9 +15,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.trav.ui.theme.PlayfairDisplay
@@ -26,7 +34,8 @@ fun DayInfoSheet(
     initialCheckInTime: String,
     initialCheckOutDay: String,
     initialCheckOutTime: String,
-    totalDays: Int, // [추가] 여행 전체 일수
+    totalDays: Int, // 전체 페이지 수 (Pre/Post 포함, 사용 안 할 수도 있음)
+    tripDuration: Int, // [추가] 순수 여행 일수 (Picker 제한용)
     onSave: (String, String, String, String, String, String) -> Unit,
     onCancel: () -> Unit
 ) {
@@ -35,30 +44,34 @@ fun DayInfoSheet(
     val topPadding = 20.dp
     val spacing = 16.dp
 
-    // [City List 관리] DB 문자열("A, B") -> 리스트 변환
-    val initialCityList = if (initialCity.isBlank()) listOf("") else initialCity.split(",").map { it.trim() }
-    val cityList = remember { mutableStateListOf(*initialCityList.toTypedArray()) }
+    // City List
+    val initialCityList = remember(initialCity) {
+        if (initialCity.isBlank()) listOf("") else initialCity.split(",").map { it.trim() }
+    }
+    val cityList = remember(initialCity) { mutableStateListOf(*initialCityList.toTypedArray()) }
 
-    var stay by remember { mutableStateOf(initialStay) }
+    var stay by remember(initialStay) { mutableStateOf(initialStay) }
 
-    // [체크인/아웃 상태]
-    var checkInDay by remember { mutableStateOf(initialCheckInDay) }
-    var checkInTime by remember { mutableStateOf(initialCheckInTime) }
-    var checkOutDay by remember { mutableStateOf(initialCheckOutDay) }
-    var checkOutTime by remember { mutableStateOf(initialCheckOutTime) }
+    // Check-in/out
+    var checkInDay by remember(initialCheckInDay) { mutableStateOf(initialCheckInDay) }
+    var checkInTime by remember(initialCheckInTime) { mutableStateOf(initialCheckInTime) }
+    var checkOutDay by remember(initialCheckOutDay) { mutableStateOf(initialCheckOutDay) }
+    var checkOutTime by remember(initialCheckOutTime) { mutableStateOf(initialCheckOutTime) }
 
-    // Picker Dialog States
+    // Picker States
     var showCheckInDayPicker by remember { mutableStateOf(false) }
     var showCheckInTimePicker by remember { mutableStateOf(false) }
     var showCheckOutDayPicker by remember { mutableStateOf(false) }
     var showCheckOutTimePicker by remember { mutableStateOf(false) }
 
-    // --- Pickers ---
+    // --- Pickers (tripDuration 사용) ---
     if (showCheckInDayPicker) {
-        WheelDayPickerDialog(totalDays, if(checkInDay.isBlank()) "Day 1" else checkInDay, { checkInDay = it; showCheckInDayPicker = false }, { showCheckInDayPicker = false })
+        // [수정] totalDays 대신 tripDuration 사용
+        WheelDayPickerDialog(tripDuration, if(checkInDay.isBlank()) "Day 1" else checkInDay, { checkInDay = it; showCheckInDayPicker = false }, { showCheckInDayPicker = false })
     }
     if (showCheckOutDayPicker) {
-        WheelDayPickerDialog(totalDays, if(checkOutDay.isBlank()) "Day 1" else checkOutDay, { checkOutDay = it; showCheckOutDayPicker = false }, { showCheckOutDayPicker = false })
+        // [수정] totalDays 대신 tripDuration 사용
+        WheelDayPickerDialog(tripDuration, if(checkOutDay.isBlank()) "Day 1" else checkOutDay, { checkOutDay = it; showCheckOutDayPicker = false }, { showCheckOutDayPicker = false })
     }
     if (showCheckInTimePicker) {
         WheelTimePickerDialog(if(checkInTime.isBlank()) "15:00" else checkInTime, { checkInTime = it; showCheckInTimePicker = false }, { showCheckInTimePicker = false })
@@ -96,7 +109,6 @@ fun DayInfoSheet(
                         Text("Day Info", fontFamily = PlayfairDisplay, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = Color.Black)
                         Button(
                             onClick = {
-                                // City 리스트를 콤마로 합쳐서 저장
                                 val cityString = cityList.filter { it.isNotBlank() }.joinToString(", ")
                                 onSave(cityString, stay, checkInDay, checkInTime, checkOutDay, checkOutTime)
                             },
@@ -107,38 +119,54 @@ fun DayInfoSheet(
                         ) { Text("SAVE", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp) }
                     }
 
-                    // 1. City (Multi-row with + / - buttons)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    // 1. City (Vertical List)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
                         Text("City", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-                        Spacer(modifier = Modifier.weight(1f))
-                        // [City 추가 버튼]
-                        CircleIconButton(
+                        DayInfoCircleIconButton(
                             icon = Icons.Default.Add,
                             containerColor = Color.Black, iconColor = Color.White,
-                            onClick = { cityList.add("") } // 빈 칸 추가
+                            onClick = { cityList.add("") },
+                            size = 24.dp
                         )
                     }
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                    cityList.forEachIndexed { index, cityValue ->
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
-                            InfoTextField(
-                                value = cityValue,
-                                onValueChange = { cityList[index] = it },
-                                placeholder = "City Name",
-                                imeAction = ImeAction.Next,
-                                height = boxHeight,
-                                fontSize = fontSize,
-                                modifier = Modifier.weight(1f)
-                            )
-                            // 2개 이상일 때만 삭제 버튼 표시
-                            if (cityList.size > 1) {
-                                Spacer(modifier = Modifier.width(8.dp))
-                                CircleIconButton(
-                                    icon = Icons.Default.Remove,
-                                    containerColor = Color(0xFFF0F0F0), iconColor = Color.Black,
-                                    onClick = { cityList.removeAt(index) }
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        cityList.forEachIndexed { index, cityValue ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "City ${index + 1}",
+                                    fontSize = 12.sp,
+                                    color = Color.Black,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.width(48.dp)
                                 )
+
+                                InfoTextField(
+                                    value = cityValue,
+                                    onValueChange = { cityList[index] = it },
+                                    placeholder = "Enter city name",
+                                    imeAction = ImeAction.Next,
+                                    height = boxHeight,
+                                    fontSize = fontSize,
+                                    modifier = Modifier.weight(1f)
+                                )
+
+                                if (index > 0) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    DayInfoCircleIconButton(
+                                        icon = Icons.Default.Remove,
+                                        containerColor = Color(0xFFF0F0F0), iconColor = Color.Black,
+                                        onClick = { cityList.removeAt(index) },
+                                        size = 24.dp
+                                    )
+                                } else {
+                                    Spacer(modifier = Modifier.width(32.dp))
+                                }
                             }
                         }
                     }
@@ -152,7 +180,7 @@ fun DayInfoSheet(
 
                     Spacer(modifier = Modifier.height(spacing))
 
-                    // 3. Check-in (Date + Time)
+                    // 3. Check-in
                     Text("Check-in", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
                     Spacer(modifier = Modifier.height(4.dp))
                     Row(modifier = Modifier.fillMaxWidth()) {
@@ -165,13 +193,13 @@ fun DayInfoSheet(
                         ReadOnlyInputBox(
                             text = checkInTime, placeholder = "Time",
                             onClick = { showCheckInTimePicker = true },
-                            height = boxHeight, fontSize = fontSize, modifier = Modifier.width(100.dp)
+                            height = boxHeight, fontSize = fontSize, modifier = Modifier.weight(1f)
                         )
                     }
 
                     Spacer(modifier = Modifier.height(spacing))
 
-                    // 4. Check-out (Date + Time)
+                    // 4. Check-out
                     Text("Check-out", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
                     Spacer(modifier = Modifier.height(4.dp))
                     Row(modifier = Modifier.fillMaxWidth()) {
@@ -184,11 +212,31 @@ fun DayInfoSheet(
                         ReadOnlyInputBox(
                             text = checkOutTime, placeholder = "Time",
                             onClick = { showCheckOutTimePicker = true },
-                            height = boxHeight, fontSize = fontSize, modifier = Modifier.width(100.dp)
+                            height = boxHeight, fontSize = fontSize, modifier = Modifier.weight(1f)
                         )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+fun DayInfoCircleIconButton(
+    icon: ImageVector,
+    containerColor: Color,
+    iconColor: Color,
+    onClick: () -> Unit,
+    size: Dp = 32.dp
+) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(containerColor)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(size / 2))
     }
 }

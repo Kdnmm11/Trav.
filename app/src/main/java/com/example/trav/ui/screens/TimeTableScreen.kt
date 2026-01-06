@@ -2,15 +2,22 @@ package com.example.trav.ui.screens
 
 import android.app.Activity
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,6 +27,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
@@ -33,6 +41,7 @@ import com.example.trav.data.Schedule
 import com.example.trav.data.Trip
 import com.example.trav.ui.theme.NotoSansKR
 import com.example.trav.ui.theme.PlayfairDisplay
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
@@ -40,6 +49,7 @@ import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TimeTableScreen(trip: Trip) {
     val context = LocalContext.current
@@ -74,6 +84,7 @@ fun TimeTableScreen(trip: Trip) {
     val dateColWidth = 121.0.dp
     val dateHeaderHeight = 42.6.dp
     val infoHeaderHeight = 40.0.dp
+    val headerTotalHeight = dateHeaderHeight + infoHeaderHeight
 
     val dateLabelSize = 12.5.sp
     val dateTextSize = 12.5.sp
@@ -95,7 +106,6 @@ fun TimeTableScreen(trip: Trip) {
     val (startHour, endHour) = remember(allSchedules) {
         val defaultStart = 8
         val defaultEnd = 24
-
         if (allSchedules.isEmpty()) {
             defaultStart to defaultEnd
         } else {
@@ -103,12 +113,10 @@ fun TimeTableScreen(trip: Trip) {
                 val h = parseTime(it.time).first
                 if (h < 5) h + 24 else h
             }
-
             val minScheduleHour = adjustedHours.minOrNull() ?: defaultStart
             val maxScheduleHour = allSchedules.maxOfOrNull {
                 val startH = parseTime(it.time).first
                 val adjStartH = if (startH < 5) startH + 24 else startH
-
                 if (it.endTime.isNotBlank()) {
                     val endH = parseTime(it.endTime).first
                     val adjEndH = if (endH < 5) endH + 24 else endH
@@ -117,18 +125,25 @@ fun TimeTableScreen(trip: Trip) {
                     adjStartH
                 }
             }?.toInt() ?: (defaultEnd - 1)
-
             val finalStart = min(defaultStart, minScheduleHour)
             val finalEnd = max(defaultEnd, maxScheduleHour + 1)
-
             finalStart to finalEnd
         }
     }
 
     val verticalScrollState = rememberScrollState()
-    val horizontalScrollState = rememberScrollState()
 
+    // [동기화] 단일 LazyListState 사용
+    val horizontalLazyState = rememberLazyListState()
+    val snapBehavior = rememberSnapFlingBehavior(lazyListState = horizontalLazyState)
+
+    val coroutineScope = rememberCoroutineScope()
+    val density = LocalDensity.current
+
+    // 색상 정의
     val appBackgroundColor = Color(0xFFFAFAFA)
+    val timeColumnColor = Color(0xFFF7F7F7) // 시간축 배경색
+
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
@@ -144,7 +159,7 @@ fun TimeTableScreen(trip: Trip) {
                 .fillMaxSize()
                 .background(appBackgroundColor)
         ) {
-            // [1. 메인 헤더]
+            // [1. 메인 헤더 (고정)]
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -183,146 +198,44 @@ fun TimeTableScreen(trip: Trip) {
                 }
             }
 
-            // [2. 날짜 헤더]
-            Row(
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.width(timeLabelWidth)) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(dateHeaderHeight)
-                            .background(Color(0xFFF2F2F2))
-                    )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(infoHeaderHeight)
-                            .background(Color.Black)
-                    )
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(horizontalScrollState)
-                ) {
-                    reorderedDays.forEach { dayNum ->
-                        val isPast = dayNum < currentStartDay
-                        val date = originalStart.plusDays((dayNum - 1).toLong())
-                        val dayName = date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.ENGLISH).uppercase()
-                        val dayStr = date.format(DateTimeFormatter.ofPattern("MM.dd"))
-
-                        val dayInfo = allDayInfos.find { it.dayNumber == dayNum }
-                        val cityText = dayInfo?.city?.takeIf { it.isNotBlank() } ?: "-"
-                        val stayText = dayInfo?.accommodation?.takeIf { it.isNotBlank() } ?: "-"
-
-                        val dayLabel = when {
-                            dayNum < 1 -> "Before ${1 - dayNum}"
-                            dayNum > originalDuration -> "After ${dayNum - originalDuration}"
-                            else -> "Day $dayNum"
-                        }
-
-                        Column(
-                            modifier = Modifier
-                                .width(dateColWidth)
-                                .alpha(if (isPast) 0.3f else 1f)
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(dateHeaderHeight)
-                                    .background(Color.Black),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Text(
-                                    text = dayLabel,
-                                    fontSize = dateLabelSize,
-                                    color = Color.LightGray,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = NotoSansKR,
-                                    modifier = Modifier.offset(y = dateLabelOffset)
-                                )
-                                Text(
-                                    text = "$dayStr $dayName",
-                                    fontSize = dateTextSize,
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = NotoSansKR,
-                                    modifier = Modifier.offset(y = dateTextOffset)
-                                )
-                            }
-
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(infoHeaderHeight)
-                                    .background(Color(0xFFF2F2F2)),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.LocationOn,
-                                        contentDescription = null,
-                                        tint = Color.Black,
-                                        modifier = Modifier
-                                            .size(cityStayIconSize)
-                                            .offset(y = cityIconOffset)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = cityText,
-                                        fontSize = cityStayFontSize,
-                                        color = Color.Black,
-                                        fontFamily = NotoSansKR,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
-                                        modifier = Modifier.offset(y = cityTextOffset)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.Home,
-                                        contentDescription = null,
-                                        tint = Color.Gray,
-                                        modifier = Modifier
-                                            .size(cityStayIconSize)
-                                            .offset(y = stayIconOffset)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = stayText,
-                                        fontSize = cityStayFontSize,
-                                        color = Color.Gray,
-                                        fontFamily = NotoSansKR,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
-                                        modifier = Modifier.offset(y = stayTextOffset)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // [3. 메인 그리드]
+            // [2. 컨텐츠 영역 (수직 스크롤 적용)]
             Row(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(verticalScrollState)
             ) {
-                // Y축 (시간)
+                // [좌측 고정 컬럼: 코너 + 시간]
                 Column(
                     modifier = Modifier
                         .width(timeLabelWidth)
-                        .background(Color(0xFFF7F7F7))
+                        .background(timeColumnColor)
                 ) {
+                    // [좌측 상단 여백] -> '좌측 화살표' 배치
+                    Box(
+                        modifier = Modifier
+                            .width(timeLabelWidth)
+                            .height(headerTotalHeight)
+                            .background(timeColumnColor),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (horizontalLazyState.canScrollBackward) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowLeft,
+                                contentDescription = "Scroll Left",
+                                tint = Color.Gray,
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clickable {
+                                        coroutineScope.launch {
+                                            // 왼쪽 클릭: 맨 처음으로 이동
+                                            horizontalLazyState.animateScrollToItem(0)
+                                        }
+                                    }
+                            )
+                        }
+                    }
+
+                    // 시간 라벨
                     for (hour in startHour..endHour) {
                         Box(
                             modifier = Modifier
@@ -355,65 +268,220 @@ fun TimeTableScreen(trip: Trip) {
                     }
                 }
 
-                // 스케줄 영역
-                Row(
-                    modifier = Modifier.horizontalScroll(horizontalScrollState)
+                // [우측 스크롤 영역을 감싸는 Box]
+                Box(
+                    modifier = Modifier.weight(1f)
                 ) {
-                    reorderedDays.forEach { dayNum ->
-                        val isPast = dayNum < currentStartDay
-                        val daySchedules = allSchedules.filter { it.dayNumber == dayNum }
+                    // [LazyRow: 날짜 헤더 + 스케줄 그리드]
+                    LazyRow(
+                        state = horizontalLazyState,
+                        flingBehavior = snapBehavior,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(reorderedDays) { dayNum ->
+                            val isPast = dayNum < currentStartDay
+                            val date = originalStart.plusDays((dayNum - 1).toLong())
+                            val dayName = date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.ENGLISH).uppercase()
+                            val dayStr = date.format(DateTimeFormatter.ofPattern("MM.dd"))
 
-                        Box(
-                            modifier = Modifier
-                                .width(dateColWidth)
-                                .height(hourHeight * (endHour - startHour + 1))
-                                .alpha(if (isPast) 0.3f else 1f)
-                                .border(BorderStroke(0.5.dp, Color(0xFFEEEEEE)))
-                        ) {
-                            // [수정] Grid Lines: Column 대신 Box 사용
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                for (i in 0..(endHour - startHour)) {
-                                    Divider(
-                                        color = Color(0xFFF5F5F5),
-                                        thickness = 1.dp,
-                                        modifier = Modifier.offset(y = hourHeight * i)
-                                    )
-                                }
+                            val dayInfo = allDayInfos.find { it.dayNumber == dayNum }
+                            val cityText = dayInfo?.city?.takeIf { it.isNotBlank() } ?: "-"
+                            val stayText = dayInfo?.accommodation?.takeIf { it.isNotBlank() } ?: "-"
+
+                            val dayLabel = when {
+                                dayNum < 1 -> "Before ${1 - dayNum}"
+                                dayNum > originalDuration -> "After ${dayNum - originalDuration}"
+                                else -> "Day $dayNum"
                             }
 
-                            daySchedules.forEach { schedule ->
-                                val (startH, startM) = parseTime(schedule.time)
-                                val adjStartH = if (startH < 5) startH + 24 else startH
+                            val daySchedules = allSchedules.filter { it.dayNumber == dayNum }
 
-                                val durationMins = if (schedule.endTime.isNotBlank()) {
-                                    val (endH, endM) = parseTime(schedule.endTime)
-                                    val adjEndH = if (endH < 5) endH + 24 else endH
-                                    val totalStart = adjStartH * 60 + startM
-                                    var totalEnd = adjEndH * 60 + endM
-
-                                    if (totalEnd <= totalStart) {
-                                        totalEnd = totalStart + 60
-                                    }
-                                    totalEnd - totalStart
-                                } else {
-                                    60
+                            // [하나의 컬럼 = 헤더 + 그리드]
+                            Column(
+                                modifier = Modifier
+                                    .width(dateColWidth)
+                                    .alpha(if (isPast) 0.3f else 1f)
+                            ) {
+                                // 1. 날짜 헤더
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(dateHeaderHeight)
+                                        .background(Color.Black),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Text(
+                                        text = dayLabel,
+                                        fontSize = dateLabelSize,
+                                        color = Color.LightGray,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = NotoSansKR,
+                                        modifier = Modifier.offset(y = dateLabelOffset)
+                                    )
+                                    Text(
+                                        text = "$dayStr $dayName",
+                                        fontSize = dateTextSize,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = NotoSansKR,
+                                        modifier = Modifier.offset(y = dateTextOffset)
+                                    )
                                 }
 
-                                if (adjStartH >= startHour) {
-                                    val topOffset = (adjStartH - startHour) * hourHeight.value + (startM / 60f) * hourHeight.value
-                                    val blockHeight = (durationMins / 60f) * hourHeight.value
+                                // 2. 정보 헤더
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(infoHeaderHeight)
+                                        .background(Color(0xFFF2F2F2)),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.LocationOn,
+                                            contentDescription = null,
+                                            tint = Color.Black,
+                                            modifier = Modifier
+                                                .size(cityStayIconSize)
+                                                .offset(y = cityIconOffset)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = cityText,
+                                            fontSize = cityStayFontSize,
+                                            color = Color.Black,
+                                            fontFamily = NotoSansKR,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+                                            modifier = Modifier.offset(y = cityTextOffset)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.Home,
+                                            contentDescription = null,
+                                            tint = Color.Gray,
+                                            modifier = Modifier
+                                                .size(cityStayIconSize)
+                                                .offset(y = stayIconOffset)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = stayText,
+                                            fontSize = cityStayFontSize,
+                                            color = Color.Gray,
+                                            fontFamily = NotoSansKR,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+                                            modifier = Modifier.offset(y = stayTextOffset)
+                                        )
+                                    }
+                                }
 
-                                    ScheduleBlock(
-                                        schedule = schedule,
-                                        heightDp = blockHeight.dp,
-                                        modifier = Modifier
-                                            .padding(horizontal = 2.dp)
-                                            .offset(y = topOffset.dp)
-                                            .width((dateColWidth.value - 4).dp)
-                                    )
+                                // 3. 스케줄 그리드
+                                Box(
+                                    modifier = Modifier
+                                        .width(dateColWidth)
+                                        .height(hourHeight * (endHour - startHour + 1))
+                                        .border(BorderStroke(0.5.dp, Color(0xFFEEEEEE)))
+                                ) {
+                                    // 그리드 라인
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        for (i in 0..(endHour - startHour)) {
+                                            Divider(
+                                                color = Color(0xFFF5F5F5),
+                                                thickness = 1.dp,
+                                                modifier = Modifier.offset(y = hourHeight * i)
+                                            )
+                                        }
+                                    }
+
+                                    // 스케줄 블록
+                                    daySchedules.forEach { schedule ->
+                                        val (startH, startM) = parseTime(schedule.time)
+                                        val adjStartH = if (startH < 5) startH + 24 else startH
+
+                                        val durationMins = if (schedule.endTime.isNotBlank()) {
+                                            val (endH, endM) = parseTime(schedule.endTime)
+                                            val adjEndH = if (endH < 5) endH + 24 else endH
+                                            val totalStart = adjStartH * 60 + startM
+                                            var totalEnd = adjEndH * 60 + endM
+
+                                            if (totalEnd <= totalStart) {
+                                                totalEnd = totalStart + 60
+                                            }
+                                            totalEnd - totalStart
+                                        } else {
+                                            60
+                                        }
+
+                                        if (adjStartH >= startHour) {
+                                            val topOffset = (adjStartH - startHour) * hourHeight.value + (startM / 60f) * hourHeight.value
+                                            val blockHeight = (durationMins / 60f) * hourHeight.value
+
+                                            ScheduleBlock(
+                                                schedule = schedule,
+                                                heightDp = blockHeight.dp,
+                                                modifier = Modifier
+                                                    .padding(horizontal = 2.dp)
+                                                    .offset(y = topOffset.dp)
+                                                    .width((dateColWidth.value - 4).dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
+                    }
+
+                    // [우측 화살표] LazyRow 위에 겹치게 배치
+                    val arrowTopPadding = (headerTotalHeight - 24.dp) / 2
+
+                    if (horizontalLazyState.canScrollForward) {
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowRight,
+                            contentDescription = "Scroll Right",
+                            tint = Color.Gray,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(top = arrowTopPadding)
+                                .size(24.dp)
+                                .clickable {
+                                    coroutineScope.launch {
+                                        if (reorderedDays.isNotEmpty()) {
+                                            // [수정] Day 6(마지막 날)이 화면 오른쪽 끝에 오도록 스크롤 계산
+                                            val targetIndex = if (futureDays.isNotEmpty()) futureDays.lastIndex else reorderedDays.lastIndex
+
+                                            // 1. 화면(Viewport) 너비와 아이템 너비 (px)
+                                            val viewportWidth = horizontalLazyState.layoutInfo.viewportSize.width
+                                            val itemWidthPx = with(density) { dateColWidth.roundToPx() }
+
+                                            // 2. 타겟의 끝 지점 (px)
+                                            val targetEndPx = (targetIndex + 1) * itemWidthPx
+
+                                            // 3. 화면 시작 지점 (px) = 타겟 끝 지점 - 화면 너비
+                                            val startPx = targetEndPx - viewportWidth
+
+                                            if (startPx <= 0) {
+                                                // 남은 일수가 적어서(3 밑) 화면을 다 못 채우거나, 타겟이 이미 앞쪽에 있는 경우
+                                                // -> 맨 처음으로 이동 (왼쪽 정렬)
+                                                horizontalLazyState.animateScrollToItem(0)
+                                            } else {
+                                                // 4. 시작 지점에 해당하는 아이템 인덱스와 오프셋(나머지) 계산
+                                                val anchorIndex = startPx / itemWidthPx
+                                                val offset = startPx % itemWidthPx
+
+                                                horizontalLazyState.animateScrollToItem(anchorIndex, scrollOffset = offset)
+                                            }
+                                        }
+                                    }
+                                }
+                        )
                     }
                 }
             }

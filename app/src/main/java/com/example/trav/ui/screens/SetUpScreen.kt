@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -30,6 +31,9 @@ fun SetupScreen(onSave: (String, String, String) -> Unit) {
     var showCustomCalendar by remember { mutableStateOf(false) }
     var startDate by remember { mutableStateOf<LocalDate?>(null) }
     var endDate by remember { mutableStateOf<LocalDate?>(null) }
+
+    // [수정] 키보드 컨트롤러 가져오기
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     Column(
         modifier = Modifier
@@ -82,13 +86,17 @@ fun SetupScreen(onSave: (String, String, String) -> Unit) {
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
-                    ) { showCustomCalendar = true }
+                    ) {
+                        // [수정] 달력 열기 전 키보드 숨기기
+                        keyboardController?.hide()
+                        showCustomCalendar = true
+                    }
             )
         }
 
         Spacer(modifier = Modifier.height(80.dp))
 
-        // 저장 버튼 (수정된 부분)
+        // 저장 버튼
         Button(
             onClick = {
                 if (title.isNotEmpty() && startDate != null && endDate != null) {
@@ -101,9 +109,9 @@ fun SetupScreen(onSave: (String, String, String) -> Unit) {
             },
             enabled = title.isNotEmpty() && startDate != null && endDate != null,
             modifier = Modifier
-                .align(Alignment.CenterHorizontally) // 중앙 정렬
-                .width(220.dp) // 너비 고정 (작게)
-                .height(50.dp), // 높이 줄임
+                .align(Alignment.CenterHorizontally)
+                .width(220.dp)
+                .height(50.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = Color.Black,
                 contentColor = Color.White,
@@ -117,7 +125,7 @@ fun SetupScreen(onSave: (String, String, String) -> Unit) {
                 "CREATE JOURNEY",
                 fontFamily = NotoSansKR,
                 fontWeight = FontWeight.Bold,
-                fontSize = 14.sp, // 폰트 사이즈도 살짝 줄임
+                fontSize = 14.sp,
                 letterSpacing = 1.sp
             )
         }

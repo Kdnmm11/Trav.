@@ -38,7 +38,7 @@ enum class TabItem(val title: String, val iconResId: Int) {
 fun MainTabScreen(trip: Trip?) {
     var currentTab by remember { mutableStateOf(TabItem.DayPlan) }
 
-    // DayPlan 화면 강제 초기화용 Key
+    // DayPlan 화면 강제 초기화용 Key (탭을 다시 눌렀을 때 갱신)
     var dayPlanKey by remember { mutableIntStateOf(0) }
 
     val appBackgroundColor = Color(0xFFFAFAFA)
@@ -52,6 +52,7 @@ fun MainTabScreen(trip: Trip?) {
         }
     }
 
+    // Trip 데이터가 로드되지 않았을 때 로딩 표시
     if (trip == null) {
         Box(
             modifier = Modifier.fillMaxSize().background(appBackgroundColor),
@@ -98,7 +99,7 @@ fun MainTabScreen(trip: Trip?) {
                         ),
                         onClick = {
                             if (currentTab == tab && tab == TabItem.DayPlan) {
-                                dayPlanKey++ // 탭 다시 누르면 초기화
+                                dayPlanKey++ // DayPlan 탭을 다시 누르면 화면 갱신
                             } else {
                                 currentTab = tab
                             }
@@ -128,10 +129,12 @@ fun MainTabScreen(trip: Trip?) {
                         }
                     }
                 }
-                // [수정] TimeTableScreen 연결
+
                 TabItem.TimeTable -> TimeTableScreen(trip)
 
-                TabItem.Budget -> PlaceholderContent("BUDGET")
+                // [수정] BudgetScreen 연결 (기존 Placeholder 제거)
+                TabItem.Budget -> BudgetScreen(trip)
+
                 TabItem.Checklist -> PlaceholderContent("CHECK LIST")
             }
         }
