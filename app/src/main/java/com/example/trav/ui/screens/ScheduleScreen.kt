@@ -53,8 +53,9 @@ fun ScheduleScreen(
         key = "schedule_${tripId}_${dayNumber}",
         factory = ScheduleViewModelFactory(database.scheduleDao(), tripId, dayNumber)
     )
-    val schedules by viewModel.schedules.collectAsState()
-    val dayInfo by viewModel.dayInfo.collectAsState()
+
+    val schedules by viewModel.schedules.collectAsState(initial = emptyList())
+    val dayInfo by viewModel.dayInfo.collectAsState(initial = null)
 
     val appBackgroundColor = Color(0xFFFAFAFA)
     val view = LocalView.current
@@ -75,7 +76,6 @@ fun ScheduleScreen(
     val fixedHeaderOffsetY = (-20).dp
     val fixedListOffsetY = (-26).dp
 
-    // [디자인 상수 고정] 튜너 제거됨
     val bottomCardHeight = 84.4.dp
     val bottomCardOffset = 18.1.dp
     val fabSize = 58.dp
@@ -84,6 +84,9 @@ fun ScheduleScreen(
     val stayFontSize = 12.5f
     val infoTextOffset = 0.dp
 
+    // [설정] 날짜 선택 범위 (여기서는 UI 테스트용으로 30일로 설정)
+    val totalDays = 30
+
     Scaffold(
         containerColor = appBackgroundColor,
         floatingActionButton = {
@@ -91,15 +94,15 @@ fun ScheduleScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .padding(start = 24.dp)
-                    .offset(y = bottomCardOffset) // [고정값 적용]
+                    .offset(y = bottomCardOffset)
             ) {
-                // 하단 정보 카드
+                // 하단 정보 카드 (Day Info)
                 Card(
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.Black),
                     modifier = Modifier
                         .weight(1f)
-                        .height(bottomCardHeight) // [고정값 적용]
+                        .height(bottomCardHeight)
                         .clickable { showDayInfoSheet = true },
                     elevation = CardDefaults.cardElevation(0.dp)
                 ) {
@@ -112,7 +115,6 @@ fun ScheduleScreen(
                             val cityText = dayInfo?.city?.ifBlank { null } ?: "City (Set Route)"
                             val stayText = dayInfo?.accommodation?.ifBlank { null } ?: "Stay (Accommodation)"
 
-                            // [고정값 적용]
                             InfoRow(
                                 icon = Icons.Default.LocationOn,
                                 text = cityText,
@@ -134,7 +136,7 @@ fun ScheduleScreen(
 
                 Spacer(modifier = Modifier.width(12.dp))
 
-                // [고정값 적용] FAB
+                // FAB (일정 추가)
                 FloatingActionButton(
                     onClick = { showScheduleSheet = true },
                     containerColor = Color.Black,
@@ -159,6 +161,7 @@ fun ScheduleScreen(
                 .background(appBackgroundColor)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
+                // 상단 헤더
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -193,6 +196,7 @@ fun ScheduleScreen(
                     }
                 }
 
+                // 일정 리스트
                 if (schedules.isEmpty()) {
                     Spacer(modifier = Modifier.weight(1f))
                     Box(modifier = Modifier.offset(y = fixedListOffsetY)) {
@@ -220,6 +224,7 @@ fun ScheduleScreen(
         }
     }
 
+    // [Edit Schedule Sheet]
     if (selectedSchedule != null) {
         ModalBottomSheet(
             onDismissRequest = { selectedSchedule = null },
@@ -229,8 +234,11 @@ fun ScheduleScreen(
         ) {
             EditScheduleSheet(
                 schedule = selectedSchedule!!,
-                onUpdate = { time, title, location, memo ->
-                    viewModel.updateSchedule(selectedSchedule!!, time, title, location, memo)
+                onUpdate = { time, endTime, title, location, memo, category, subCategory, amount, arrivalPlace, reservationNum, bookingSource ->
+                    viewModel.updateSchedule(
+                        selectedSchedule!!, time, endTime, title, location, memo,
+                        category, subCategory, amount, arrivalPlace, reservationNum, bookingSource
+                    )
                     selectedSchedule = null
                 },
                 onDelete = {
@@ -242,6 +250,7 @@ fun ScheduleScreen(
         }
     }
 
+    // [Day Info Sheet] (City 추가 기능, 날짜/시간 분리 적용)
     if (showDayInfoSheet) {
         ModalBottomSheet(
             onDismissRequest = { showDayInfoSheet = false },
@@ -252,8 +261,13 @@ fun ScheduleScreen(
             DayInfoSheet(
                 initialCity = dayInfo?.city ?: "",
                 initialStay = dayInfo?.accommodation ?: "",
-                onSave = { city, stay ->
-                    viewModel.saveDayInfo(city, stay)
+                initialCheckInDay = dayInfo?.checkInDay ?: "",
+                initialCheckInTime = dayInfo?.checkInTime ?: "",
+                initialCheckOutDay = dayInfo?.checkOutDay ?: "",
+                initialCheckOutTime = dayInfo?.checkOutTime ?: "",
+                totalDays = totalDays,
+                onSave = { city, stay, inDay, inTime, outDay, outTime ->
+                    viewModel.saveDayInfo(city, stay, inDay, inTime, outDay, outTime)
                     showDayInfoSheet = false
                 },
                 onCancel = { showDayInfoSheet = false }
@@ -261,6 +275,7 @@ fun ScheduleScreen(
         }
     }
 
+    // [Add Schedule Sheet]
     if (showScheduleSheet) {
         ModalBottomSheet(
             onDismissRequest = { showScheduleSheet = false },
@@ -269,8 +284,11 @@ fun ScheduleScreen(
             dragHandle = null
         ) {
             AddScheduleSheet(
-                onConfirm = { time, title, location, memo ->
-                    viewModel.addSchedule(time, title, location, memo)
+                onConfirm = { time, endTime, title, location, memo, category, subCategory, amount, arrivalPlace, reservationNum, bookingSource ->
+                    viewModel.addSchedule(
+                        time, endTime, title, location, memo,
+                        category, subCategory, amount, arrivalPlace, reservationNum, bookingSource
+                    )
                     showScheduleSheet = false
                 },
                 onCancel = { showScheduleSheet = false }

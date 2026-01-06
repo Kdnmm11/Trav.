@@ -8,9 +8,19 @@ data class Schedule(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val tripId: Int,
     val dayNumber: Int,
-    val time: String,       // 시작 시간 (필수)
-    val endTime: String = "", // 종료 시간 (선택, 없으면 빈 문자열)
+    val time: String,
+    val endTime: String = "",
     val title: String,
-    val location: String,
-    val memo: String
+    val location: String, // 출발지 or 장소
+    val memo: String,
+
+    // [예산 및 상세 정보]
+    val category: String = "",
+    val subCategory: String = "",
+    val amount: Double = 0.0,
+
+    // [신규 필드] B안 구현을 위한 필드
+    val arrivalPlace: String = "",    // 교통: 도착지
+    val reservationNum: String = "",  // 음식/액티비티: 예약번호
+    val bookingSource: String = ""    // 액티비티: 예약처(하나투어 등)
 )

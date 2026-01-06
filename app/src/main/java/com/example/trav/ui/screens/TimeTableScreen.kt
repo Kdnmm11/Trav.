@@ -7,13 +7,11 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,15 +19,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
@@ -39,7 +34,6 @@ import com.example.trav.data.Trip
 import com.example.trav.ui.theme.NotoSansKR
 import com.example.trav.ui.theme.PlayfairDisplay
 import java.time.LocalDate
-import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
@@ -111,19 +105,16 @@ fun TimeTableScreen(trip: Trip) {
             }
 
             val minScheduleHour = adjustedHours.minOrNull() ?: defaultStart
-            // 종료 시간도 고려해야 함 (일정이 길어질 수 있으므로)
             val maxScheduleHour = allSchedules.maxOfOrNull {
                 val startH = parseTime(it.time).first
                 val adjStartH = if (startH < 5) startH + 24 else startH
 
-                // 종료 시간이 있으면 그 시간까지 포함
                 if (it.endTime.isNotBlank()) {
                     val endH = parseTime(it.endTime).first
                     val adjEndH = if (endH < 5) endH + 24 else endH
-                    // 만약 종료시간이 시작시간보다 작으면(다음날 넘어감 등) 보정
                     if (adjEndH < adjStartH) adjEndH + 24 else adjEndH
                 } else {
-                    adjStartH // 종료 시간 없으면 시작 시간 기준
+                    adjStartH
                 }
             }?.toInt() ?: (defaultEnd - 1)
 
@@ -232,13 +223,11 @@ fun TimeTableScreen(trip: Trip) {
                             else -> "Day $dayNum"
                         }
 
-                        // 전체 날짜 컬럼 박스
                         Column(
                             modifier = Modifier
                                 .width(dateColWidth)
                                 .alpha(if (isPast) 0.3f else 1f)
                         ) {
-                            // [상단] 검은색 배경
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -265,7 +254,6 @@ fun TimeTableScreen(trip: Trip) {
                                 )
                             }
 
-                            // [하단] 회색 배경 (도시/숙소 정보)
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -274,10 +262,7 @@ fun TimeTableScreen(trip: Trip) {
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center
                             ) {
-                                // City Info Row
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
                                         imageVector = Icons.Default.LocationOn,
                                         contentDescription = null,
@@ -298,13 +283,8 @@ fun TimeTableScreen(trip: Trip) {
                                         modifier = Modifier.offset(y = cityTextOffset)
                                     )
                                 }
-
                                 Spacer(modifier = Modifier.height(4.dp))
-
-                                // Stay Info Row
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
                                         imageVector = Icons.Default.Home,
                                         contentDescription = null,
@@ -351,7 +331,6 @@ fun TimeTableScreen(trip: Trip) {
                             contentAlignment = Alignment.TopCenter
                         ) {
                             val displayHour = if (hour >= 24) hour - 24 else hour
-
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier.padding(top = 2.dp)
@@ -391,7 +370,8 @@ fun TimeTableScreen(trip: Trip) {
                                 .alpha(if (isPast) 0.3f else 1f)
                                 .border(BorderStroke(0.5.dp, Color(0xFFEEEEEE)))
                         ) {
-                            Column {
+                            // [수정] Grid Lines: Column 대신 Box 사용
+                            Box(modifier = Modifier.fillMaxSize()) {
                                 for (i in 0..(endHour - startHour)) {
                                     Divider(
                                         color = Color(0xFFF5F5F5),
@@ -405,33 +385,27 @@ fun TimeTableScreen(trip: Trip) {
                                 val (startH, startM) = parseTime(schedule.time)
                                 val adjStartH = if (startH < 5) startH + 24 else startH
 
-                                // [높이 계산 로직]
-                                // 1. 종료 시간이 있으면 차이를 계산
-                                // 2. 없으면 기본 1시간(60분)
                                 val durationMins = if (schedule.endTime.isNotBlank()) {
                                     val (endH, endM) = parseTime(schedule.endTime)
                                     val adjEndH = if (endH < 5) endH + 24 else endH
-
-                                    // 종료 시간이 시작 시간보다 같거나 빠르면 (오류 혹은 날짜 넘어감) -> 최소 30분 보장
                                     val totalStart = adjStartH * 60 + startM
                                     var totalEnd = adjEndH * 60 + endM
 
                                     if (totalEnd <= totalStart) {
-                                        totalEnd = totalStart + 60 // 강제 1시간
+                                        totalEnd = totalStart + 60
                                     }
                                     totalEnd - totalStart
                                 } else {
-                                    60 // 기본 1시간
+                                    60
                                 }
 
                                 if (adjStartH >= startHour) {
                                     val topOffset = (adjStartH - startHour) * hourHeight.value + (startM / 60f) * hourHeight.value
-                                    // 분 단위 -> dp 높이 변환
                                     val blockHeight = (durationMins / 60f) * hourHeight.value
 
                                     ScheduleBlock(
                                         schedule = schedule,
-                                        heightDp = blockHeight.dp, // 계산된 높이 전달
+                                        heightDp = blockHeight.dp,
                                         modifier = Modifier
                                             .padding(horizontal = 2.dp)
                                             .offset(y = topOffset.dp)
@@ -459,11 +433,11 @@ fun parseTime(timeStr: String): Pair<Int, Int> {
 @Composable
 fun ScheduleBlock(
     schedule: Schedule,
-    heightDp: androidx.compose.ui.unit.Dp, // 높이 파라미터 추가
+    heightDp: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = modifier.height(heightDp), // 계산된 높이 적용
+        modifier = modifier.height(heightDp),
         shape = RoundedCornerShape(4.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.85f)),
         elevation = CardDefaults.cardElevation(2.dp)
@@ -473,7 +447,6 @@ fun ScheduleBlock(
                 .fillMaxSize()
                 .padding(4.dp)
         ) {
-            // 시간 표시 (종료 시간 있으면 ~ 표시)
             val timeText = if (schedule.endTime.isNotBlank()) {
                 "${schedule.time} - ${schedule.endTime}"
             } else {
@@ -489,7 +462,6 @@ fun ScheduleBlock(
                 style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
             )
 
-            // 높이가 너무 작으면 제목 숨기기 (선택사항)
             if (heightDp > 25.dp) {
                 Text(
                     text = schedule.title,

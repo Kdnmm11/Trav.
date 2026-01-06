@@ -53,6 +53,7 @@ class TripViewModel(
         if (trip.preDays > 0) {
             viewModelScope.launch {
                 val dayToDelete = 1 - trip.preDays
+                // [오류 해결] ScheduleDao에 함수 추가됨
                 scheduleDao.deleteSchedulesOnDay(trip.id, dayToDelete)
                 scheduleDao.deleteDayInfoOnDay(trip.id, dayToDelete)
 
@@ -72,6 +73,7 @@ class TripViewModel(
         if (trip.postDays > 0) {
             viewModelScope.launch {
                 val dayToDelete = originalDuration + trip.postDays
+                // [오류 해결] ScheduleDao에 함수 추가됨
                 scheduleDao.deleteSchedulesOnDay(trip.id, dayToDelete)
                 scheduleDao.deleteDayInfoOnDay(trip.id, dayToDelete)
                 tripDao.updateTrip(trip.copy(postDays = trip.postDays - 1))

@@ -7,8 +7,6 @@ import com.example.trav.data.DayInfo
 import com.example.trav.data.Schedule
 import com.example.trav.data.ScheduleDao
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 class ScheduleViewModel(
@@ -18,63 +16,67 @@ class ScheduleViewModel(
 ) : ViewModel() {
 
     val schedules: Flow<List<Schedule>> = scheduleDao.getSchedulesForDay(tripId, dayNumber)
+    val dayInfo: Flow<DayInfo?> = scheduleDao.getDayInfo(tripId, dayNumber)
 
-    private val _dayInfo = MutableStateFlow<DayInfo?>(null)
-    val dayInfo: StateFlow<DayInfo?> = _dayInfo
-
-    init {
+    fun addSchedule(
+        time: String, endTime: String, title: String, location: String, memo: String,
+        category: String, subCategory: String, amount: Double,
+        arrivalPlace: String, reservationNum: String, bookingSource: String
+    ) {
         viewModelScope.launch {
-            scheduleDao.getDayInfo(tripId, dayNumber).collect {
-                _dayInfo.value = it
-            }
+            scheduleDao.insertSchedule(
+                Schedule(
+                    tripId = tripId, dayNumber = dayNumber,
+                    time = time, endTime = endTime, title = title, location = location, memo = memo,
+                    category = category, subCategory = subCategory, amount = amount,
+                    arrivalPlace = arrivalPlace, reservationNum = reservationNum, bookingSource = bookingSource
+                )
+            )
         }
     }
 
-    // [수정] endTime 파라미터 추가
-    fun addSchedule(time: String, endTime: String, title: String, location: String, memo: String) {
+    fun updateSchedule(
+        schedule: Schedule,
+        time: String, endTime: String, title: String, location: String, memo: String,
+        category: String, subCategory: String, amount: Double,
+        arrivalPlace: String, reservationNum: String, bookingSource: String
+    ) {
         viewModelScope.launch {
-            val schedule = Schedule(
-                tripId = tripId,
-                dayNumber = dayNumber,
-                time = time,
-                endTime = endTime, // 추가
-                title = title,
-                location = location,
-                memo = memo
+            scheduleDao.updateSchedule(
+                schedule.copy(
+                    time = time, endTime = endTime, title = title, location = location, memo = memo,
+                    category = category, subCategory = subCategory, amount = amount,
+                    arrivalPlace = arrivalPlace, reservationNum = reservationNum, bookingSource = bookingSource
+                )
             )
-            scheduleDao.insertSchedule(schedule)
-        }
-    }
-
-    // [수정] endTime 파라미터 추가
-    fun updateSchedule(schedule: Schedule, time: String, endTime: String, title: String, location: String, memo: String) {
-        viewModelScope.launch {
-            val updatedSchedule = schedule.copy(
-                time = time,
-                endTime = endTime, // 추가
-                title = title,
-                location = location,
-                memo = memo
-            )
-            scheduleDao.updateSchedule(updatedSchedule)
         }
     }
 
     fun deleteSchedule(schedule: Schedule) {
-        viewModelScope.launch {
-            scheduleDao.deleteSchedule(schedule)
-        }
+        viewModelScope.launch { scheduleDao.deleteSchedule(schedule) }
     }
 
-    fun saveDayInfo(city: String, accommodation: String) {
+    // [수정] DayInfo 저장 (CheckInDay, CheckOutDay 추가)
+    fun saveDayInfo(
+        city: String,
+        accommodation: String,
+        checkInDay: String,
+        checkInTime: String,
+        checkOutDay: String,
+        checkOutTime: String
+    ) {
         viewModelScope.launch {
-            val currentInfo = _dayInfo.value
-            if (currentInfo == null) {
-                val newInfo = DayInfo(tripId = tripId, dayNumber = dayNumber, city = city, accommodation = accommodation)
-                scheduleDao.insertDayInfo(newInfo)
-            } else {
-                scheduleDao.updateDayInfo(currentInfo.copy(city = city, accommodation = accommodation))
-            }
+            val info = DayInfo(
+                tripId = tripId,
+                dayNumber = dayNumber,
+                city = city,
+                accommodation = accommodation,
+                checkInDay = checkInDay,
+                checkInTime = checkInTime,
+                checkOutDay = checkOutDay,
+                checkOutTime = checkOutTime
+            )
+            scheduleDao.insertDayInfo(info)
         }
     }
 }

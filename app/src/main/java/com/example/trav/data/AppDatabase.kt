@@ -5,11 +5,11 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-// [수정] version 7로 변경 (앱 삭제 후 재설치 권장)
-@Database(entities = [Trip::class, Schedule::class, DayInfo::class], version = 7, exportSchema = false)
+// Trip::class가 entities에 포함되어 있는지 꼭 확인하세요.
+@Database(entities = [Schedule::class, DayInfo::class, Trip::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
-    abstract fun tripDao(): TripDao
     abstract fun scheduleDao(): ScheduleDao
+    abstract fun tripDao(): TripDao // [중요] TripViewModel에서 사용하므로 필수
 
     companion object {
         @Volatile
@@ -22,7 +22,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "trav_database"
                 )
-                    .fallbackToDestructiveMigration() // 스키마 변경 시 기존 데이터 삭제하고 재생성
+                    .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
                 instance
