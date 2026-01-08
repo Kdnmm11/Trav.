@@ -1,6 +1,7 @@
 package com.example.trav.ui.screens
 
 import android.app.Activity
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -26,6 +27,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -60,38 +63,49 @@ fun BudgetScreen(trip: Trip) {
     val schedules by viewModel.allSchedules.collectAsState(initial = emptyList())
     val totalExpense by viewModel.totalExpense.collectAsState(initial = 0.0)
 
+    val focusManager = LocalFocusManager.current
+    val density = LocalDensity.current
+    val isImeVisible = WindowInsets.ime.getBottom(density) > 0
+
     // Sheet State
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showAddSheet by remember { mutableStateOf(false) }
     var selectedSchedule by remember { mutableStateOf<Schedule?>(null) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // ✅ 핵심: 시트가 열려있을 때 뒤로가기 제어
+    val isAnySheetVisible = showAddSheet || (selectedSchedule != null)
+    BackHandler(enabled = isAnySheetVisible) {
+        if (isImeVisible) {
+            focusManager.clearFocus()
+        } else {
+            showAddSheet = false
+            selectedSchedule = null
+        }
+    }
+
+    // ✅ 핵심: 자동 dismiss 방지 프로퍼티
+    val sheetProps = remember {
+        ModalBottomSheetProperties(shouldDismissOnBackPress = false)
+    }
 
     val expandedCategories = remember { mutableStateMapOf<String, Boolean>() }
-
-    // 순서 변경 가능한 카테고리 리스트 (State)
     val categories = remember { mutableStateListOf(*BudgetCategory.budgetDisplayCategories.toTypedArray()) }
 
-    // Drag & Drop State
     var draggingItemIndex by remember { mutableStateOf<Int?>(null) }
     var draggingItemOffset by remember { mutableStateOf(0f) }
 
-    // 여행 기간 계산
     val tripDuration = remember(trip) {
         try {
             val start = LocalDate.parse(trip.startDate)
             val end = LocalDate.parse(trip.endDate)
             ChronoUnit.DAYS.between(start, end).toInt() + 1
-        } catch (e: Exception) {
-            1
-        }
+        } catch (e: Exception) { 1 }
     }
 
-    // 날짜 포맷팅
     val formattedDate = remember(trip.startDate) {
         try {
             LocalDate.parse(trip.startDate).format(DateTimeFormatter.ofPattern("yyyy.MM.dd"))
-        } catch (e: Exception) {
-            trip.startDate
-        }
+        } catch (e: Exception) { trip.startDate }
     }
 
     val appBackgroundColor = Color(0xFFFAFAFA)
@@ -110,7 +124,6 @@ fun BudgetScreen(trip: Trip) {
                 .background(appBackgroundColor)
                 .padding(horizontal = 24.dp)
         ) {
-            // [1. 헤더 (오른쪽에 날짜/제목 표시)]
             Spacer(modifier = Modifier.height(20.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -144,7 +157,6 @@ fun BudgetScreen(trip: Trip) {
             }
             Spacer(modifier = Modifier.height(20.dp))
 
-            // [2. Total Expense (상단 배치)]
             Card(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = Color.Black),
@@ -166,7 +178,6 @@ fun BudgetScreen(trip: Trip) {
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // [3. 카테고리 리스트 (Drag & Drop 적용)]
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -177,7 +188,6 @@ fun BudgetScreen(trip: Trip) {
                     val isDragging = index == draggingItemIndex
                     val zIndex = if (isDragging) 1f else 0f
                     val scale by animateFloatAsState(if (isDragging) 1.05f else 1f, label = "scale")
-                    val shadow = if (isDragging) 8.dp else 0.dp
 
                     val categoryItems = if (category == "기타") {
                         schedules.filter { it.category == "기타" || it.category.isBlank() || !BudgetCategory.budgetDisplayCategories.contains(it.category) }
@@ -196,8 +206,7 @@ fun BudgetScreen(trip: Trip) {
                                 scaleY = scale
                                 translationY = if (isDragging) draggingItemOffset else 0f
                             }
-                            .shadow(shadow, RoundedCornerShape(16.dp))
-                            // [드래그 제스처 감지]
+                            .shadow(if (isDragging) 8.dp else 0.dp, RoundedCornerShape(16.dp))
                             .pointerInput(Unit) {
                                 detectDragGesturesAfterLongPress(
                                     onDragStart = {
@@ -207,22 +216,14 @@ fun BudgetScreen(trip: Trip) {
                                     onDrag = { change, dragAmount ->
                                         change.consume()
                                         draggingItemOffset += dragAmount.y
-
-                                        val currentOffset = draggingItemOffset
-                                        val itemHeight = 60.dp.toPx() // 대략적인 아이템 높이
-
-                                        // 아래로 이동
-                                        if (currentOffset > itemHeight && index < categories.lastIndex) {
-                                            val nextIndex = index + 1
-                                            categories.add(nextIndex, categories.removeAt(index))
-                                            draggingItemIndex = nextIndex
+                                        val itemHeight = 60.dp.toPx()
+                                        if (draggingItemOffset > itemHeight && index < categories.lastIndex) {
+                                            categories.add(index + 1, categories.removeAt(index))
+                                            draggingItemIndex = index + 1
                                             draggingItemOffset -= itemHeight
-                                        }
-                                        // 위로 이동
-                                        else if (currentOffset < -itemHeight && index > 0) {
-                                            val prevIndex = index - 1
-                                            categories.add(prevIndex, categories.removeAt(index))
-                                            draggingItemIndex = prevIndex
+                                        } else if (draggingItemOffset < -itemHeight && index > 0) {
+                                            categories.add(index - 1, categories.removeAt(index))
+                                            draggingItemIndex = index - 1
                                             draggingItemOffset += itemHeight
                                         }
                                     },
@@ -247,12 +248,10 @@ fun BudgetScreen(trip: Trip) {
                         )
                     }
                 }
-                // 하단 FAB 공간 확보
                 Spacer(modifier = Modifier.height(100.dp))
             }
         }
 
-        // [4. FAB (BudgetAddSheet 연결)]
         FloatingActionButton(
             onClick = { showAddSheet = true },
             containerColor = Color.Black,
@@ -264,18 +263,18 @@ fun BudgetScreen(trip: Trip) {
         }
     }
 
-    // [BudgetAddSheet]
     if (showAddSheet) {
         ModalBottomSheet(
             onDismissRequest = { showAddSheet = false },
             sheetState = sheetState,
             containerColor = Color.Transparent,
-            dragHandle = null
+            dragHandle = null,
+            properties = sheetProps
         ) {
             BudgetAddSheet(
                 tripDuration = tripDuration,
+                startDate = trip.startDate,
                 onConfirm = { title, amount, category, subCategory, memo, location, time, source, dayNum ->
-                    // ViewModel에 업데이트 요청 (신규 추가)
                     val newSchedule = Schedule(
                         tripId = trip.id,
                         dayNumber = dayNum,
@@ -296,17 +295,18 @@ fun BudgetScreen(trip: Trip) {
         }
     }
 
-    // [BudgetEditSheet]
     if (selectedSchedule != null) {
         ModalBottomSheet(
             onDismissRequest = { selectedSchedule = null },
             sheetState = sheetState,
             containerColor = Color.Transparent,
-            dragHandle = null
+            dragHandle = null,
+            properties = sheetProps
         ) {
             BudgetEditSheet(
                 schedule = selectedSchedule!!,
                 tripDuration = tripDuration,
+                startDate = trip.startDate,
                 onSave = { updatedItem ->
                     viewModel.updateBudgetItem(updatedItem)
                     selectedSchedule = null
@@ -336,7 +336,6 @@ fun CategoryBudgetGroup(
             .background(Color.White, RoundedCornerShape(16.dp))
             .clip(RoundedCornerShape(16.dp))
     ) {
-        // 카테고리 헤더
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -362,7 +361,6 @@ fun CategoryBudgetGroup(
             }
         }
 
-        // 상세 리스트
         AnimatedVisibility(visible = isExpanded) {
             Column {
                 if (items.isEmpty()) {

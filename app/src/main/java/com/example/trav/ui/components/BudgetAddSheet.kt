@@ -45,14 +45,17 @@ import com.example.trav.ui.theme.PlayfairDisplay
 @Composable
 fun BudgetAddSheet(
     tripDuration: Int,
+    startDate: String,
     onConfirm: (String, Double, String, String, String, String, String, String, Int) -> Unit,
     onCancel: () -> Unit
 ) {
     val boxHeight = 44.dp
     val fontSize = 14.sp
-    val keyboardController = LocalSoftwareKeyboardController.current
 
-    val isImeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    // [키보드 제어]
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val density = LocalDensity.current
+    val isImeVisible = WindowInsets.ime.getBottom(density) > 0
 
     BackHandler(enabled = isImeVisible) {
         keyboardController?.hide()
@@ -115,17 +118,23 @@ fun BudgetAddSheet(
         }
         val initialDay = if(currentDay.isBlank()) "Day 1" else currentDay
 
-        WheelDayPickerDialog(tripDuration, initialDay, {
-            when(dayPickerTarget) {
-                "accIn" -> accCheckInDay = it
-                "accOut" -> accCheckOutDay = it
-                "transDep" -> transDepDay = it
-                "transArr" -> transArrDay = it
-                "end" -> endDay = it
-                else -> startDay = it
-            }
-            showStartDayPicker = false
-        }, { showStartDayPicker = false })
+        WheelDayPickerDialog(
+            totalDays = tripDuration,
+            startDate = startDate,
+            initialDay = initialDay,
+            onDaySelected = {
+                when(dayPickerTarget) {
+                    "accIn" -> accCheckInDay = it
+                    "accOut" -> accCheckOutDay = it
+                    "transDep" -> transDepDay = it
+                    "transArr" -> transArrDay = it
+                    "end" -> endDay = it
+                    else -> startDay = it
+                }
+                showStartDayPicker = false
+            },
+            onDismiss = { showStartDayPicker = false }
+        )
     }
 
     if (showTimePicker) {
@@ -176,6 +185,7 @@ fun BudgetAddSheet(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            // 1. 화면의 다른 곳 터치 시 키보드 내리기
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -190,7 +200,10 @@ fun BudgetAddSheet(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(enabled = false) {},
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { keyboardController?.hide() },
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(containerColor = Color.White),
                 elevation = CardDefaults.cardElevation(0.dp)
@@ -225,7 +238,9 @@ fun BudgetAddSheet(
                                         }
                                         "교통" -> {
                                             finalLocation = "$depLocation -> $arrLocation"
-                                            finalTime = "$transDepDay $transDepTime"
+                                            // [수정] DayPlan에서 "Day1김밥" 처럼 나오지 않게 날짜 부분("Day X") 제거하고 시간만 저장
+                                            // 기존: finalTime = "$transDepDay $transDepTime"
+                                            finalTime = transDepTime
                                             finalDayNum = transDepDay.replace("Day ", "").toIntOrNull() ?: 1
                                         }
                                         "준비" -> { finalDayNum = 1 }

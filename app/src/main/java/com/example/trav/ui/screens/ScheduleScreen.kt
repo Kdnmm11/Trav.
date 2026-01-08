@@ -1,29 +1,40 @@
 package com.example.trav.ui.screens
 
 import android.app.Activity
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
@@ -40,6 +51,41 @@ import com.example.trav.ui.viewmodel.ScheduleViewModelFactory
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
+// [도시 이름 말줄임 및 구분자 처리 함수 수정본]
+fun formatCityText(cityString: String?): String {
+    if (cityString.isNullOrBlank()) return "City"
+
+    // 콤마로 나누고 빈 문자열 제거하여 유효한 도시 리스트 생성
+    val cities = cityString.split(",")
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+
+    if (cities.isEmpty()) return "City"
+
+    val maxLength = 16 // 영문/숫자 기준 16 (한글은 1글자당 2로 계산하여 8자 제한)
+
+    val formattedCities = cities.map { city ->
+        var currentLen = 0
+        var result = ""
+        var isTruncated = false
+
+        for (char in city) {
+            val charLen = if (char.code <= 128) 1 else 2
+            if (currentLen + charLen > maxLength) {
+                isTruncated = true
+                break
+            }
+            result += char
+            currentLen += charLen
+        }
+
+        if (isTruncated) "$result..." else city
+    }
+
+    // " > "로 연결하되 마지막 도시 뒤에는 붙지 않음
+    return formattedCities.joinToString(" > ")
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScheduleScreen(
@@ -51,7 +97,6 @@ fun ScheduleScreen(
 ) {
     val context = LocalContext.current
     val database = AppDatabase.getDatabase(context)
-
     val tripDao = database.tripDao()
     val trip by tripDao.getTrip(tripId).collectAsState(initial = null)
 
@@ -62,6 +107,46 @@ fun ScheduleScreen(
 
     val schedules by viewModel.schedules.collectAsState(initial = emptyList())
     val dayInfo by viewModel.dayInfo.collectAsState(initial = null)
+    val focusManager = LocalFocusManager.current
+    val isImeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // --- [사용자 고정 수치] ---
+    val fixedTimeAreaY = 31.1f
+    val fixedDotY = 40.2f
+    val fixedTitleOffsetX = -3.9f
+    val fixedTitleOffsetY = 12.2f
+    val fixedTitleFontSize = 20.4f
+    val fixedTitleAreaHeight = 30.3f
+    val fixedChipFontSize = 9.0f
+    val fixedLeftTimeLineHeight = 12.6f
+    val fixedCardContentSpacing = 2.6f
+
+    var showScheduleSheet by remember { mutableStateOf(false) }
+    var showDayInfoSheet by remember { mutableStateOf(false) }
+    var selectedSchedule by remember { mutableStateOf<Schedule?>(null) }
+
+    BackHandler(enabled = isImeVisible || showScheduleSheet || showDayInfoSheet || (selectedSchedule != null)) {
+        if (isImeVisible) focusManager.clearFocus()
+        else if (showScheduleSheet) showScheduleSheet = false
+        else if (showDayInfoSheet) showDayInfoSheet = false
+        else if (selectedSchedule != null) selectedSchedule = null
+    }
+
+    val totalDays = remember(trip) {
+        trip?.let {
+            val start = LocalDate.parse(it.startDate)
+            val end = LocalDate.parse(it.endDate)
+            ChronoUnit.DAYS.between(start, end).toInt() + 1 + it.preDays + it.postDays
+        } ?: 1
+    }
+    val tripDuration = remember(trip) {
+        trip?.let {
+            val start = LocalDate.parse(it.startDate)
+            val end = LocalDate.parse(it.endDate)
+            ChronoUnit.DAYS.between(start, end).toInt() + 1
+        } ?: 1
+    }
 
     val appBackgroundColor = Color(0xFFFAFAFA)
     val view = LocalView.current
@@ -73,168 +158,62 @@ fun ScheduleScreen(
         }
     }
 
-    var showScheduleSheet by remember { mutableStateOf(false) }
-    var showDayInfoSheet by remember { mutableStateOf(false) }
-    var selectedSchedule by remember { mutableStateOf<Schedule?>(null) }
-
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    val fixedHeaderOffsetY = (-20).dp
-    val fixedListOffsetY = (-26).dp
-
-    val bottomCardHeight = 84.4.dp
-    val bottomCardOffset = 18.1.dp
-    val fabSize = 58.dp
-    val fabIconSize = 25.dp
-    val cityFontSize = 12.5f
-    val stayFontSize = 12.5f
-    val infoTextOffset = 0.dp
-
-    // 1. 전체 기간 (Pre/Post 포함)
-    val totalDays = remember(trip) {
-        trip?.let {
-            val start = LocalDate.parse(it.startDate)
-            val end = LocalDate.parse(it.endDate)
-            val originalDuration = ChronoUnit.DAYS.between(start, end).toInt() + 1
-            originalDuration + it.preDays + it.postDays
-        } ?: 1
-    }
-
-    // [수정] 2. 순수 여행 기간 (Pre/Post 제외) 계산 - Picker 제한용
-    val tripDuration = remember(trip) {
-        trip?.let {
-            val start = LocalDate.parse(it.startDate)
-            val end = LocalDate.parse(it.endDate)
-            ChronoUnit.DAYS.between(start, end).toInt() + 1
-        } ?: 1
-    }
-
     Scaffold(
         containerColor = appBackgroundColor,
         floatingActionButton = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .padding(start = 24.dp)
-                    .offset(y = bottomCardOffset)
+                modifier = Modifier.padding(start = 24.dp).offset(y = 18.dp)
             ) {
-                // 하단 정보 카드 (Day Info)
                 Card(
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.Black),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(bottomCardHeight)
-                        .clickable { showDayInfoSheet = true },
+                    modifier = Modifier.weight(1f).height(84.dp).clickable { showDayInfoSheet = true },
                     elevation = CardDefaults.cardElevation(0.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(verticalArrangement = Arrangement.Center) {
-                            val cityText = dayInfo?.city?.ifBlank { null } ?: "City (Set Route)"
-                            val stayText = dayInfo?.accommodation?.ifBlank { null } ?: "Stay (Accommodation)"
-
+                    Row(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column {
+                            // [수정된 포맷팅 함수 적용]
                             InfoRow(
-                                icon = Icons.Default.LocationOn,
-                                text = cityText,
-                                isPlaceholder = dayInfo?.city.isNullOrBlank(),
-                                fontSize = cityFontSize,
-                                textOffset = infoTextOffset.value
+                                Icons.Default.LocationOn,
+                                formatCityText(dayInfo?.city),
+                                dayInfo?.city.isNullOrBlank()
                             )
                             Spacer(modifier = Modifier.height(4.dp))
-                            InfoRow(
-                                icon = Icons.Default.Home,
-                                text = stayText,
-                                isPlaceholder = dayInfo?.accommodation.isNullOrBlank(),
-                                fontSize = stayFontSize,
-                                textOffset = infoTextOffset.value
-                            )
+                            InfoRow(Icons.Default.Home, dayInfo?.accommodation ?: "Stay", dayInfo?.accommodation.isNullOrBlank())
                         }
                     }
                 }
-
                 Spacer(modifier = Modifier.width(12.dp))
-
-                FloatingActionButton(
-                    onClick = { showScheduleSheet = true },
-                    containerColor = Color.Black,
-                    contentColor = Color.White,
-                    shape = CircleShape,
-                    modifier = Modifier.size(fabSize),
-                    elevation = FloatingActionButtonDefaults.elevation(4.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Add,
-                        contentDescription = "Add",
-                        modifier = Modifier.size(fabIconSize)
-                    )
+                FloatingActionButton(onClick = { showScheduleSheet = true }, containerColor = Color.Black, contentColor = Color.White, shape = CircleShape) {
+                    Icon(Icons.Default.Add, contentDescription = "Add")
                 }
             }
         }
     ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(appBackgroundColor)
-        ) {
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             Column(modifier = Modifier.fillMaxSize()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp)
-                        .offset(y = fixedHeaderOffsetY),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Day $dayNumber",
-                        fontFamily = PlayfairDisplay,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 32.sp,
-                        color = Color.Black
-                    )
-
+                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(top = 20.dp, bottom = 10.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = "Day $dayNumber", fontFamily = PlayfairDisplay, fontWeight = FontWeight.Bold, fontSize = 32.sp)
                     Column(horizontalAlignment = Alignment.End) {
-                        Text(
-                            text = tripTitle.uppercase(),
-                            fontFamily = NotoSansKR,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = Color.Black
-                        )
-                        Text(
-                            text = tripDate,
-                            fontFamily = NotoSansKR,
-                            fontWeight = FontWeight.Normal,
-                            fontSize = 12.sp,
-                            color = Color.Gray
-                        )
+                        Text(tripTitle.uppercase(), fontFamily = NotoSansKR, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(tripDate, fontFamily = NotoSansKR, fontSize = 12.sp, color = Color.Gray)
                     }
                 }
 
                 if (schedules.isEmpty()) {
-                    Spacer(modifier = Modifier.weight(1f))
-                    Box(modifier = Modifier.offset(y = fixedListOffsetY)) {
-                        EmptyStateView()
-                    }
-                    Spacer(modifier = Modifier.weight(1f))
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyStateView() }
                 } else {
-                    LazyColumn(
-                        contentPadding = PaddingValues(bottom = 150.dp, top = 20.dp),
-                        modifier = Modifier
-                            .padding(horizontal = 20.dp)
-                            .offset(y = fixedListOffsetY)
-                    ) {
+                    LazyColumn(contentPadding = PaddingValues(bottom = 150.dp, top = 10.dp), modifier = Modifier.padding(horizontal = 16.dp)) {
                         itemsIndexed(schedules) { index, schedule ->
                             TimelineItem(
-                                schedule = schedule,
-                                isFirst = index == 0,
-                                isLast = index == schedules.lastIndex,
-                                onClick = { selectedSchedule = schedule }
+                                schedule = schedule, isFirst = index == 0, isLast = index == schedules.lastIndex,
+                                onLongClick = { selectedSchedule = schedule },
+                                titleX = fixedTitleOffsetX, titleY = fixedTitleOffsetY, titleSize = fixedTitleFontSize, titleH = fixedTitleAreaHeight,
+                                chipSize = fixedChipFontSize,
+                                leftTimeH = fixedLeftTimeLineHeight,
+                                timeAreaY = fixedTimeAreaY, dotY = fixedDotY,
+                                cardSpacing = fixedCardContentSpacing
                             )
                         }
                     }
@@ -243,177 +222,160 @@ fun ScheduleScreen(
         }
     }
 
-    if (selectedSchedule != null) {
-        ModalBottomSheet(
-            onDismissRequest = { selectedSchedule = null },
-            sheetState = sheetState,
-            containerColor = Color.Transparent,
-            dragHandle = null
-        ) {
-            EditScheduleSheet(
-                schedule = selectedSchedule!!,
-                onUpdate = { time, endTime, title, location, memo, category, subCategory, amount, arrivalPlace, reservationNum, bookingSource ->
-                    viewModel.updateSchedule(
-                        selectedSchedule!!, time, endTime, title, location, memo,
-                        category, subCategory, amount, arrivalPlace, reservationNum, bookingSource
-                    )
-                    selectedSchedule = null
-                },
-                onDelete = {
-                    viewModel.deleteSchedule(selectedSchedule!!)
-                    selectedSchedule = null
-                },
-                onCancel = { selectedSchedule = null }
-            )
-        }
-    }
-
-    if (showDayInfoSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showDayInfoSheet = false },
-            sheetState = sheetState,
-            containerColor = Color.Transparent,
-            dragHandle = null
-        ) {
-            DayInfoSheet(
-                initialCity = dayInfo?.city ?: "",
-                initialStay = dayInfo?.accommodation ?: "",
-                initialCheckInDay = dayInfo?.checkInDay ?: "",
-                initialCheckInTime = dayInfo?.checkInTime ?: "",
-                initialCheckOutDay = dayInfo?.checkOutDay ?: "",
-                initialCheckOutTime = dayInfo?.checkOutTime ?: "",
-                totalDays = totalDays,
-                // [수정] tripDuration 전달
-                tripDuration = tripDuration,
-                onSave = { city, stay, inDay, inTime, outDay, outTime ->
-                    viewModel.saveDayInfo(city, stay, inDay, inTime, outDay, outTime)
-                    showDayInfoSheet = false
-                },
-                onCancel = { showDayInfoSheet = false }
-            )
-        }
-    }
-
+    val sheetProps = remember { ModalBottomSheetProperties(shouldDismissOnBackPress = false) }
     if (showScheduleSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showScheduleSheet = false },
-            sheetState = sheetState,
-            containerColor = Color.Transparent,
-            dragHandle = null
-        ) {
-            AddScheduleSheet(
-                onConfirm = { time, endTime, title, location, memo, category, subCategory, amount, arrivalPlace, reservationNum, bookingSource ->
-                    viewModel.addSchedule(
-                        time, endTime, title, location, memo,
-                        category, subCategory, amount, arrivalPlace, reservationNum, bookingSource
-                    )
-                    showScheduleSheet = false
-                },
-                onCancel = { showScheduleSheet = false }
+        ModalBottomSheet(onDismissRequest = { showScheduleSheet = false }, sheetState = sheetState, containerColor = Color.Transparent, dragHandle = null, properties = sheetProps) {
+            AddScheduleSheet(tripDuration, trip?.startDate ?: "", dayNumber, { t1, t2, tt, loc, mm, cat, sub, amt, arr, res, src ->
+                viewModel.addSchedule(t1, t2, tt, loc, mm, cat, sub, amt, arr, res, src); showScheduleSheet = false
+            }, { showScheduleSheet = false })
+        }
+    }
+    if (selectedSchedule != null) {
+        ModalBottomSheet(onDismissRequest = { selectedSchedule = null }, sheetState = sheetState, containerColor = Color.Transparent, dragHandle = null, properties = sheetProps) {
+            EditScheduleSheet(selectedSchedule!!, tripDuration, trip?.startDate ?: "", { t1, t2, tt, loc, mm, cat, sub, amt, arr, res, src ->
+                viewModel.updateSchedule(selectedSchedule!!, t1, t2, tt, loc, mm, cat, sub, amt, arr, res, src); selectedSchedule = null
+            }, { viewModel.deleteSchedule(selectedSchedule!!); selectedSchedule = null }, { selectedSchedule = null })
+        }
+    }
+    if (showDayInfoSheet) {
+        ModalBottomSheet(onDismissRequest = { showDayInfoSheet = false }, sheetState = sheetState, containerColor = Color.Transparent, dragHandle = null, properties = sheetProps) {
+            DayInfoSheet(dayInfo?.city ?: "", dayInfo?.accommodation ?: "", dayInfo?.checkInDay ?: "", dayInfo?.checkInTime ?: "", dayInfo?.checkOutDay ?: "", dayInfo?.checkOutTime ?: "", totalDays, tripDuration, trip?.startDate ?: "", { c, s, d1, t1, d2, t2 ->
+                viewModel.saveDayInfo(c, s, d1, t1, d2, t2); showDayInfoSheet = false
+            }, { showDayInfoSheet = false })
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun TimelineItem(
+    schedule: Schedule, isFirst: Boolean, isLast: Boolean, onLongClick: () -> Unit,
+    titleX: Float, titleY: Float, titleSize: Float, titleH: Float,
+    chipSize: Float,
+    leftTimeH: Float,
+    timeAreaY: Float, dotY: Float,
+    cardSpacing: Float
+) {
+    var isExpanded by remember { mutableStateOf(false) }
+    val rotationState by animateFloatAsState(targetValue = if (isExpanded) 180f else 0f)
+
+    val displayEndTime = remember(schedule) {
+        if (schedule.category == "교통") {
+            val parts = schedule.subCategory.split(" ")
+            if (parts.size >= 3 && parts.last().contains(":")) parts.last() else ""
+        } else if (schedule.endTime.isNotBlank()) {
+            schedule.endTime.split(" ").first()
+        } else ""
+    }
+    val hasEndTime = displayEndTime.isNotBlank()
+
+    Row(modifier = Modifier.fillMaxWidth().animateContentSize().height(IntrinsicSize.Min)) {
+        Box(modifier = Modifier.width(54.dp).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
+            val combinedTimeText = if (hasEndTime) "${schedule.time}\n-\n$displayEndTime" else schedule.time
+            Text(
+                text = combinedTimeText,
+                fontFamily = NotoSansKR,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+                color = Color.Black,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = timeAreaY.dp),
+                style = TextStyle(
+                    lineHeight = leftTimeH.sp,
+                    platformStyle = PlatformTextStyle(includeFontPadding = false),
+                    lineHeightStyle = LineHeightStyle(alignment = LineHeightStyle.Alignment.Center, trim = LineHeightStyle.Trim.None)
+                )
             )
+        }
+
+        Box(modifier = Modifier.width(16.dp).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
+            val startY = dotY.dp
+            if (!isLast) Box(modifier = Modifier.padding(top = startY).fillMaxHeight().width(1.dp).background(Color.LightGray))
+            if (!isFirst) Box(modifier = Modifier.height(startY).width(1.dp).background(Color.LightGray))
+            Box(modifier = Modifier.padding(top = startY - 4.5.dp).size(9.dp).clip(CircleShape).background(Color.Black))
+        }
+
+        Spacer(modifier = Modifier.width(10.dp))
+
+        Surface(modifier = Modifier.weight(1f).padding(bottom = 12.dp), color = Color.White, shape = RoundedCornerShape(12.dp)) {
+            Column(
+                modifier = Modifier.fillMaxWidth().combinedClickable(onClick = { isExpanded = !isExpanded }, onLongClick = onLongClick)
+                    .padding(vertical = 12.dp).padding(start = 18.dp, end = 12.dp)
+            ) {
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.weight(1f).height(titleH.dp), contentAlignment = Alignment.CenterStart) {
+                        Text(
+                            text = schedule.title, fontFamily = NotoSansKR, fontWeight = FontWeight.Bold, fontSize = titleSize.sp, color = Color.Black,
+                            style = TextStyle(lineHeight = titleSize.sp, platformStyle = PlatformTextStyle(includeFontPadding = false)),
+                            modifier = Modifier.offset(x = titleX.dp, y = titleY.dp)
+                        )
+                    }
+                    Icon(imageVector = Icons.Default.KeyboardArrowDown, contentDescription = null, tint = Color.Gray, modifier = Modifier.rotate(rotationState).size(22.dp))
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                    Surface(color = Color.Black, shape = RoundedCornerShape((chipSize * 1.5f).dp), modifier = Modifier.height((chipSize * 2.2f).dp)) {
+                        Box(modifier = Modifier.padding(horizontal = (chipSize * 1.0f).dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                            Text(text = schedule.category, fontFamily = NotoSansKR, fontSize = chipSize.sp, color = Color.White, fontWeight = FontWeight.Bold, style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)))
+                        }
+                    }
+                    val transportCategories = remember { listOf("항공", "기차", "버스", "택시", "지하철", "트램", "배", "기타") }
+                    val subText = remember(schedule) {
+                        if (schedule.category == "교통") {
+                            val parts = schedule.subCategory.split(" ")
+                            parts.firstOrNull { it in transportCategories } ?: ""
+                        } else schedule.subCategory
+                    }
+                    if (subText.isNotBlank()) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(color = Color(0xFFE0E0E0), shape = RoundedCornerShape((chipSize * 1.5f).dp), modifier = Modifier.height((chipSize * 2.2f).dp)) {
+                            Box(modifier = Modifier.padding(horizontal = (chipSize * 1.0f).dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                                Text(text = subText, fontFamily = NotoSansKR, fontSize = chipSize.sp, color = Color.Black, fontWeight = FontWeight.Medium, style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)))
+                            }
+                        }
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = isExpanded,
+                    enter = expandVertically(tween(300)) + fadeIn(tween(300)),
+                    exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
+                ) {
+                    Column(modifier = Modifier.padding(top = cardSpacing.dp)) {
+                        if (schedule.location.isNotBlank()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.LocationOn, null, tint = Color.Gray, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                val formattedLocation = schedule.location.replace("->", " > ")
+                                Text(text = formattedLocation, fontSize = 13.sp, color = Color.DarkGray, fontFamily = NotoSansKR)
+                            }
+                            Spacer(modifier = Modifier.height(cardSpacing.dp))
+                        }
+                        if (schedule.memo.isNotBlank()) {
+                            Text(text = schedule.memo, fontSize = 13.sp, color = Color(0xFF444444), fontFamily = NotoSansKR, lineHeight = 20.sp, modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-fun InfoRow(
-    icon: ImageVector,
-    text: String,
-    isPlaceholder: Boolean,
-    fontSize: Float = 11f,
-    textOffset: Float = 0f
-) {
+fun InfoRow(icon: ImageVector, text: String, isPlaceholder: Boolean) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = if (isPlaceholder) Color.Gray else Color.White,
-            modifier = Modifier.size(12.dp)
-        )
+        Icon(icon, null, tint = if (isPlaceholder) Color.Gray else Color.White, modifier = Modifier.size(12.dp))
         Spacer(modifier = Modifier.width(6.dp))
-        Text(
-            text = text,
-            fontFamily = NotoSansKR,
-            fontSize = fontSize.sp,
-            color = if (isPlaceholder) Color.Gray else Color.White,
-            fontWeight = if (isPlaceholder) FontWeight.Normal else FontWeight.Bold,
-            modifier = Modifier.offset(y = textOffset.dp)
-        )
+        Text(text, fontFamily = NotoSansKR, fontSize = 12.sp, color = if (isPlaceholder) Color.Gray else Color.White, fontWeight = if (isPlaceholder) FontWeight.Normal else FontWeight.Bold)
     }
 }
 
 @Composable
 fun EmptyStateView() {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text("Empty Plan", fontFamily = PlayfairDisplay, fontSize = 24.sp, color = Color.LightGray, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(8.dp))
         Text("Create your memory for this day.", fontFamily = NotoSansKR, fontSize = 14.sp, color = Color.Gray)
-    }
-}
-
-@Composable
-fun TimelineItem(
-    schedule: Schedule,
-    isFirst: Boolean,
-    isLast: Boolean,
-    onClick: () -> Unit
-) {
-    val dotSize = 10.dp
-    val dotTopPadding = 25.dp
-    val dotCenterY = dotTopPadding + (dotSize / 2)
-
-    Row(modifier = Modifier.height(IntrinsicSize.Min).fillMaxWidth()) {
-        Box(
-            modifier = Modifier.width(50.dp).padding(top = 18.dp),
-            contentAlignment = Alignment.TopEnd
-        ) {
-            Text(text = schedule.time, fontFamily = NotoSansKR, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color.Black)
-        }
-        Spacer(modifier = Modifier.width(12.dp))
-        Box(
-            modifier = Modifier.width(16.dp).fillMaxHeight(),
-            contentAlignment = Alignment.TopCenter
-        ) {
-            if (!isFirst) {
-                Box(modifier = Modifier.width(1.dp).height(dotCenterY).background(Color.LightGray).align(Alignment.TopCenter))
-            }
-            if (!isLast) {
-                Box(modifier = Modifier.width(1.dp).fillMaxHeight().padding(top = dotCenterY).background(Color.LightGray).align(Alignment.TopCenter))
-            }
-            Box(modifier = Modifier.padding(top = dotTopPadding).size(dotSize).clip(CircleShape).background(Color.Black).align(Alignment.TopCenter))
-        }
-        Spacer(modifier = Modifier.width(16.dp))
-
-        Card(
-            modifier = Modifier
-                .weight(1f)
-                .padding(bottom = 24.dp)
-                .clickable { onClick() },
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            border = BorderStroke(1.dp, Color(0xFFEFEFEF)),
-            shape = RoundedCornerShape(16.dp),
-            elevation = CardDefaults.cardElevation(0.dp)
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Text(text = schedule.title, fontFamily = NotoSansKR, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.Black, modifier = Modifier.fillMaxWidth())
-
-                if (schedule.location.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(12.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(text = schedule.location, fontSize = 12.sp, color = Color.Gray, fontFamily = NotoSansKR)
-                    }
-                }
-                if (schedule.memo.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(text = schedule.memo, fontSize = 13.sp, color = Color(0xFF555555), fontFamily = NotoSansKR, lineHeight = 18.sp)
-                }
-            }
-        }
     }
 }

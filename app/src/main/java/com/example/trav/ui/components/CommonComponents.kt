@@ -34,8 +34,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.trav.ui.theme.NotoSansKR
 import com.example.trav.ui.theme.PlayfairDisplay
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
-// [카테고리 선택 칩]
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CategorySelector(
@@ -68,7 +69,6 @@ fun CategorySelector(
     }
 }
 
-// [공통 텍스트 필드]
 @Composable
 fun InfoTextField(
     value: String,
@@ -112,7 +112,6 @@ fun InfoTextField(
     )
 }
 
-// [공통 시간 입력 박스]
 @Composable
 fun TimeInputBox(
     time: String,
@@ -143,7 +142,6 @@ fun TimeInputBox(
     }
 }
 
-// [원형 아이콘 버튼]
 @Composable
 fun CircleIconButton(
     icon: ImageVector,
@@ -169,7 +167,6 @@ fun CircleIconButton(
     }
 }
 
-// [휠 타임 피커 다이얼로그]
 @Composable
 fun WheelTimePickerDialog(
     initialTime: String,
@@ -190,72 +187,27 @@ fun WheelTimePickerDialog(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.3f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { onDismiss() },
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onDismiss() },
             contentAlignment = Alignment.Center
         ) {
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 50.dp)
-                    .clickable(enabled = false) {},
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(0.dp)
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 50.dp).clickable(enabled = false) {},
+                shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(0.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "Select Time",
-                        fontFamily = PlayfairDisplay,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.Black
-                    )
+                Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(text = "Select Time", fontFamily = PlayfairDisplay, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.Black)
                     Spacer(modifier = Modifier.height(24.dp))
-
-                    Row(
-                        modifier = Modifier.height(140.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        WheelPicker(
-                            items = (0..23).toList(),
-                            initialItem = initialHour,
-                            onItemSelected = { selectedHour = it },
-                            format = { String.format("%02d", it) }
-                        )
-
-                        Text(
-                            text = ":",
-                            fontSize = 28.sp,
-                            fontWeight = FontWeight.Light,
-                            color = Color.Gray,
-                            modifier = Modifier.padding(horizontal = 20.dp).offset(y = (-2).dp)
-                        )
-
-                        WheelPicker(
-                            items = (0..59).toList(),
-                            initialItem = initialMinute,
-                            onItemSelected = { selectedMinute = it },
-                            format = { String.format("%02d", it) }
-                        )
+                    Row(modifier = Modifier.height(140.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                        WheelPicker(items = (0..23).toList(), initialItem = initialHour, onItemSelected = { selectedHour = it }, itemContent = { item ->
+                            Text(text = String.format("%02d", item), fontSize = 22.sp, fontFamily = NotoSansKR, fontWeight = FontWeight.SemiBold, color = Color.Black)
+                        })
+                        Text(text = ":", fontSize = 28.sp, fontWeight = FontWeight.Light, color = Color.Gray, modifier = Modifier.padding(horizontal = 20.dp).offset(y = (-2).dp))
+                        WheelPicker(items = (0..59).toList(), initialItem = initialMinute, onItemSelected = { selectedMinute = it }, itemContent = { item ->
+                            Text(text = String.format("%02d", item), fontSize = 22.sp, fontFamily = NotoSansKR, fontWeight = FontWeight.SemiBold, color = Color.Black)
+                        })
                     }
-
                     Spacer(modifier = Modifier.height(24.dp))
-
-                    Button(
-                        onClick = {
-                            onTimeSelected(String.format("%02d:%02d", selectedHour, selectedMinute))
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().height(48.dp)
-                    ) {
+                    Button(onClick = { onTimeSelected(String.format("%02d:%02d", selectedHour, selectedMinute)) }, colors = ButtonDefaults.buttonColors(containerColor = Color.Black), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().height(48.dp)) {
                         Text("Confirm", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     }
                 }
@@ -264,18 +216,18 @@ fun WheelTimePickerDialog(
     }
 }
 
-// [신규] 날짜 선택용 다이얼로그 (Day 1 ~ Day N)
 @Composable
-fun WheelDayPickerDialog(
-    totalDays: Int,
-    initialDay: String,
-    onDaySelected: (String) -> Unit,
+fun WheelEndTimePickerDialog(
+    initialTime: String,
+    onTimeSelected: (String) -> Unit,
+    onChangeDayClick: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    // "Day 1" ~ "Day N" 리스트 생성
-    val days = (1..totalDays).map { "Day $it" }
-    val initialIndex = days.indexOf(initialDay).coerceAtLeast(0)
-    var selectedDay by remember { mutableStateOf(days[initialIndex]) }
+    val initialHour = initialTime.split(":").getOrElse(0) { "09" }.toIntOrNull() ?: 9
+    val initialMinute = initialTime.split(":").getOrElse(1) { "00" }.toIntOrNull() ?: 0
+
+    var selectedHour by remember { mutableIntStateOf(initialHour) }
+    var selectedMinute by remember { mutableIntStateOf(initialMinute) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -285,6 +237,74 @@ fun WheelDayPickerDialog(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.3f))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onDismiss() },
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 50.dp).clickable(enabled = false) {},
+                shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(0.dp)
+            ) {
+                Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(text = "Select Time", fontFamily = PlayfairDisplay, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Row(modifier = Modifier.height(140.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                        WheelPicker(items = (0..23).toList(), initialItem = initialHour, onItemSelected = { selectedHour = it }, itemContent = { item ->
+                            Text(text = String.format("%02d", item), fontSize = 22.sp, fontFamily = NotoSansKR, fontWeight = FontWeight.SemiBold, color = Color.Black)
+                        })
+                        Text(text = ":", fontSize = 28.sp, fontWeight = FontWeight.Light, color = Color.Gray, modifier = Modifier.padding(horizontal = 20.dp).offset(y = (-2).dp))
+                        WheelPicker(items = (0..59).toList(), initialItem = initialMinute, onItemSelected = { selectedMinute = it }, itemContent = { item ->
+                            Text(text = String.format("%02d", item), fontSize = 22.sp, fontFamily = NotoSansKR, fontWeight = FontWeight.SemiBold, color = Color.Black)
+                        })
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    TextButton(onClick = {
+                        onTimeSelected(String.format("%02d:%02d", selectedHour, selectedMinute))
+                        onChangeDayClick()
+                    }) {
+                        Text("Different Day?", color = Color.Gray, fontSize = 13.sp, fontFamily = NotoSansKR)
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(onClick = { onTimeSelected(String.format("%02d:%02d", selectedHour, selectedMinute)) }, colors = ButtonDefaults.buttonColors(containerColor = Color.Black), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                        Text("Confirm", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun WheelDayPickerDialog(
+    totalDays: Int,
+    startDate: String,
+    initialDay: String,
+    onDaySelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val days = (1..totalDays).map { "Day $it" }
+    val initialIndex = days.indexOf(initialDay).coerceAtLeast(0)
+    var selectedDay by remember { mutableStateOf(days[initialIndex]) }
+
+    val startLocalDate = remember(startDate) {
+        try {
+            LocalDate.parse(startDate)
+        } catch (e: Exception) {
+            LocalDate.now()
+        }
+    }
+
+    val itemHeight = 66.dp
+    val visibleItemsCount = 3
+    val wheelTotalHeight = itemHeight * visibleItemsCount
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.15f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
@@ -294,14 +314,14 @@ fun WheelDayPickerDialog(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 50.dp)
+                    .padding(horizontal = 30.dp)
                     .clickable(enabled = false) {},
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(containerColor = Color.White),
                 elevation = CardDefaults.cardElevation(0.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(24.dp),
+                    modifier = Modifier.padding(vertical = 36.dp, horizontal = 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
@@ -311,20 +331,50 @@ fun WheelDayPickerDialog(
                         fontWeight = FontWeight.Bold,
                         color = Color.Black
                     )
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(30.dp))
 
                     Box(
-                        modifier = Modifier.height(140.dp),
+                        modifier = Modifier.height(wheelTotalHeight),
                         contentAlignment = Alignment.Center
                     ) {
                         WheelPicker(
                             items = days,
                             initialItem = selectedDay,
-                            onItemSelected = { selectedDay = it }
+                            itemHeight = itemHeight,
+                            onItemSelected = { selectedDay = it },
+                            itemContent = { dayStr ->
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
+                                    modifier = Modifier.fillMaxHeight()
+                                ) {
+                                    Text(
+                                        text = dayStr,
+                                        fontSize = 22.sp,
+                                        fontFamily = NotoSansKR,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color.Black,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    val dayNum = dayStr.removePrefix("Day ").toIntOrNull() ?: 1
+                                    val dateStr = startLocalDate.plusDays((dayNum - 1).toLong())
+                                        .format(DateTimeFormatter.ofPattern("yyyy.MM.dd"))
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                    Text(
+                                        text = dateStr,
+                                        fontSize = 12.sp,
+                                        fontFamily = NotoSansKR,
+                                        color = Color.Gray,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(30.dp))
 
                     Button(
                         onClick = { onDaySelected(selectedDay) },
@@ -340,7 +390,6 @@ fun WheelDayPickerDialog(
     }
 }
 
-// [신규] 읽기 전용 입력 박스 (날짜/시간 선택용)
 @Composable
 fun ReadOnlyInputBox(
     text: String,
@@ -348,7 +397,8 @@ fun ReadOnlyInputBox(
     onClick: () -> Unit,
     height: Dp,
     fontSize: TextUnit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isHint: Boolean = false
 ) {
     Surface(
         onClick = onClick,
@@ -360,12 +410,14 @@ fun ReadOnlyInputBox(
             contentAlignment = Alignment.CenterStart,
             modifier = Modifier.padding(horizontal = 16.dp)
         ) {
+            val isActualHint = isHint || text.isBlank() || text == placeholder
+
             Text(
                 text = if (text.isBlank()) placeholder else text,
                 fontSize = fontSize,
-                color = if (text.isBlank()) Color.LightGray else Color.Black,
+                color = if (isActualHint) Color.LightGray else Color.Black,
                 fontFamily = NotoSansKR,
-                fontWeight = if (text.isBlank()) FontWeight.Normal else FontWeight.Bold
+                fontWeight = if (isActualHint) FontWeight.Normal else FontWeight.Bold
             )
         }
     }
@@ -377,11 +429,11 @@ fun <T> WheelPicker(
     items: List<T>,
     initialItem: T,
     onItemSelected: (T) -> Unit,
-    format: (T) -> String = { it.toString() }
+    itemHeight: Dp = 44.dp,
+    itemContent: @Composable (T) -> Unit
 ) {
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = items.indexOf(initialItem))
     val flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
-    val itemHeight = 44.dp
     val visibleItemsCount = 3
 
     LaunchedEffect(listState.isScrollInProgress) {
@@ -417,14 +469,7 @@ fun <T> WheelPicker(
                         .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = format(items[index]),
-                        fontSize = 22.sp,
-                        fontFamily = NotoSansKR,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.Black,
-                        textAlign = TextAlign.Center
-                    )
+                    itemContent(items[index])
                 }
             }
         }
