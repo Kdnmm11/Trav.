@@ -69,6 +69,7 @@ fun EditScheduleSheet(
     var selectedSubCategory by remember { mutableStateOf(schedule.subCategory) }
     var time by remember { mutableStateOf(schedule.time) }
 
+    // [수정] endTime 초기값 설정 로직 보강
     val (parsedEndTime, parsedEndDay) = remember(schedule.endTime) {
         if (schedule.endTime.contains(" (Day ")) {
             val parts = schedule.endTime.split(" (")
@@ -87,16 +88,18 @@ fun EditScheduleSheet(
     var transArrDay by remember { mutableStateOf("Day $currentDayNumber") }
     var transArrTime by remember { mutableStateOf("") }
 
+    // [수정] 수정 화면 진입 시 데이터 매핑 로직 완벽 복구
     LaunchedEffect(schedule) {
         if (schedule.category == "교통") {
             transDepTime = schedule.time
             val locParts = schedule.location.split(" > ")
             location = locParts.getOrNull(0) ?: ""
             arrivalPlace = locParts.getOrNull(1) ?: schedule.arrivalPlace
-            val subParts = schedule.subCategory.split(" ")
-            if (subParts.size >= 3) {
-                transArrDay = "${subParts[0]} ${subParts[1]}"
-                transArrTime = subParts[2]
+
+            // 교통 카테고리의 경우 endTime 필드에 있는 값을 도착 시간으로 로드
+            if (schedule.endTime.isNotBlank()) {
+                transArrTime = parsedEndTime
+                transArrDay = parsedEndDay
             }
         }
     }
@@ -126,7 +129,11 @@ fun EditScheduleSheet(
             WheelEndTimePickerDialog(current.ifBlank { "09:00" }, { endTime = it; showTimePicker = false }, { dayPickerTarget = "end"; showDayPicker = true }, { showTimePicker = false })
         } else {
             WheelTimePickerDialog(current.ifBlank { "09:00" }, {
-                when(timePickerTarget) { "start" -> time = it; "transDep" -> transDepTime = it; "transArr" -> transArrTime = it }
+                when(timePickerTarget) {
+                    "start" -> time = it
+                    "transDep" -> transDepTime = it
+                    "transArr" -> transArrTime = it
+                }
                 showTimePicker = false
             }, { showTimePicker = false })
         }
@@ -138,7 +145,6 @@ fun EditScheduleSheet(
                 shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(0.dp)) {
 
                 Column(modifier = Modifier.padding(top = 20.dp, bottom = 24.dp).fillMaxWidth().verticalScroll(rememberScrollState())) {
-                    // [헤더: 버튼 양식 완벽 유지]
                     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = standardPadding).padding(bottom = 20.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text("Edit Schedule", fontFamily = PlayfairDisplay, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = Color.Black)
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -155,7 +161,9 @@ fun EditScheduleSheet(
                                 onClick = {
                                     if (title.isNotBlank()) {
                                         if (selectedCategory == "교통") {
-                                            onUpdate(transDepTime, "", title, "$location > $arrivalPlace", memo, selectedCategory, "$transArrDay $transArrTime", 0.0, arrivalPlace, "", "")
+                                            val finalLoc = if(location.isNotBlank() && arrivalPlace.isNotBlank()) "$location > $arrivalPlace" else location
+                                            val fEnd = if(transArrTime.isNotBlank()) { if (transArrDay != "Day $currentDayNumber") "$transArrTime ($transArrDay)" else transArrTime } else ""
+                                            onUpdate(transDepTime, fEnd, title, finalLoc, memo, selectedCategory, selectedSubCategory.ifBlank { "교통" }, 0.0, arrivalPlace, "", "")
                                         } else {
                                             val fEnd = if (isEndTimeVisible && endTime.isNotBlank()) { if (endDay != "Day $currentDayNumber") "$endTime ($endDay)" else endTime } else ""
                                             onUpdate(time, fEnd, title, location, memo, selectedCategory, selectedSubCategory, 0.0, arrivalPlace, "", "")
@@ -172,7 +180,6 @@ fun EditScheduleSheet(
                         }
                     }
 
-                    // Title
                     EditPaddedContent(standardPadding) {
                         Text("Title", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray, fontFamily = NotoSansKR); Spacer(modifier = Modifier.height(4.dp))
                         InfoTextField(title, {title=it}, "Title", ImeAction.Next, boxHeight, fontSize)
@@ -180,7 +187,6 @@ fun EditScheduleSheet(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Category
                     EditPaddedContent(standardPadding) {
                         Text("Category", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray, fontFamily = NotoSansKR); Spacer(modifier = Modifier.height(4.dp))
                     }
@@ -193,7 +199,6 @@ fun EditScheduleSheet(
                     }
 
                     val subList = BudgetCategory.subCategories[selectedCategory] ?: emptyList()
-                    // SubCategory: BudgetAddSheet의 부드러운 애니메이션 이식
                     AnimatedVisibility(
                         visible = subList.isNotEmpty(),
                         enter = fadeIn(tween(200)) + expandVertically(tween(200)),
@@ -212,7 +217,6 @@ fun EditScheduleSheet(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // [본문: BudgetAddSheet의 AnimatedContent 방식 적용]
                     AnimatedContent(
                         targetState = selectedCategory,
                         transitionSpec = {
@@ -245,7 +249,6 @@ fun EditScheduleSheet(
                                     }
                                 }
                             } else {
-                                // Time
                                 EditPaddedContent(standardPadding) {
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                         Text("Time", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray, fontFamily = NotoSansKR)
@@ -255,7 +258,6 @@ fun EditScheduleSheet(
                                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                                         TimeInputBox(time, {timePickerTarget="start"; showTimePicker=true}, boxHeight, fontSize, Modifier.weight(1f), if(isEndTimeVisible) "Start" else "Select Time")
 
-                                        // Time 칸 추가/삭제 애니메이션
                                         AnimatedVisibility(
                                             visible = isEndTimeVisible,
                                             enter = fadeIn(tween(200)) + expandHorizontally(tween(200)),
@@ -312,7 +314,9 @@ private fun EditCategoryChip(text: String, isSelected: Boolean, onClick: () -> U
         color = if (isSelected) Color.Black else backgroundColor,
         contentColor = if (isSelected) Color.White else Color.Black,
         shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.clickable { onClick() }
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .clickable { onClick() }
     ) {
         Text(text = text, fontFamily = NotoSansKR, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
     }

@@ -436,11 +436,23 @@ fun <T> WheelPicker(
     val flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
     val visibleItemsCount = 3
 
-    LaunchedEffect(listState.isScrollInProgress) {
-        if (!listState.isScrollInProgress) {
-            val centerIndex = listState.firstVisibleItemIndex.coerceIn(0, items.lastIndex)
-            onItemSelected(items[centerIndex])
+    // [수정] 스크롤 도중에도 현재 중앙에 가장 가까운 인덱스를 실시간으로 추적
+    val centerIndex by remember {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val itemSize = if (layoutInfo.visibleItemsInfo.isNotEmpty()) layoutInfo.visibleItemsInfo[0].size else 0
+            if (itemSize <= 0) items.indexOf(initialItem)
+            else {
+                // 현재 스크롤 위치에서 가장 중앙에 위치한 인덱스 계산
+                val index = (listState.firstVisibleItemIndex + (listState.firstVisibleItemScrollOffset.toFloat() / itemSize).toInt())
+                index.coerceIn(0, items.lastIndex)
+            }
         }
+    }
+
+    // [수정] 중앙값이 변경될 때마다 즉시 콜백 호출 (스크롤 중에도 반영됨)
+    LaunchedEffect(centerIndex) {
+        onItemSelected(items[centerIndex])
     }
 
     Box(

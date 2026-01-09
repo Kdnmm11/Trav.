@@ -124,7 +124,6 @@ fun AddScheduleSheet(
                 shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(0.dp)
             ) {
                 Column(modifier = Modifier.padding(top = 24.dp, bottom = 24.dp).fillMaxWidth().verticalScroll(rememberScrollState())) {
-                    // [헤더: SAVE 버튼 Edit과 동일하게 수정]
                     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = standardPadding).padding(bottom = 20.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text("Add Schedule", fontFamily = PlayfairDisplay, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = Color.Black)
                         Button(
@@ -132,7 +131,21 @@ fun AddScheduleSheet(
                                 if (title.isNotBlank()) {
                                     if (selectedCategory == "교통") {
                                         val finalLoc = if(location.isNotBlank() && arrivalPlace.isNotBlank()) "$location > $arrivalPlace" else location
-                                        onConfirm(transDepTime, "", title, finalLoc, memo, selectedCategory, "$transArrDay $transArrTime", 0.0, arrivalPlace, "", "")
+                                        // [해결 1] 파라미터 순서 수정: transArrTime을 endTime 자리에 넣고, selectedSubCategory를 정확한 위치에 넣음
+                                        // 순서: time, endTime, title, location, memo, category, subCategory, amount, arrivalPlace, ...
+                                        onConfirm(
+                                            transDepTime,
+                                            transArrTime, // endTime 자리에 도착 시간 전달 (타임테이블 높이 해결)
+                                            title,
+                                            finalLoc,
+                                            memo,
+                                            selectedCategory,
+                                            selectedSubCategory.ifBlank { "교통" }, // subCategory 자리에 "버스" 등 전달 (뒤섞임 해결)
+                                            0.0,
+                                            arrivalPlace,
+                                            "",
+                                            ""
+                                        )
                                     } else {
                                         val fEnd = if (isEndTimeVisible && endTime.isNotBlank()) { if (endDay != "Day $currentDayNumber") "$endTime ($endDay)" else endTime } else ""
                                         onConfirm(time, fEnd, title, location, memo, selectedCategory, selectedSubCategory, 0.0, arrivalPlace, "", "")
@@ -222,7 +235,6 @@ fun AddScheduleSheet(
                                     }
                                 }
                             } else {
-                                // [Time Section: End 추가 시 애니메이션 적용]
                                 SchedulePaddedContent(standardPadding) {
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                         Text("Time", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray, fontFamily = NotoSansKR)
@@ -232,7 +244,6 @@ fun AddScheduleSheet(
                                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                                         TimeInputBox(time, {timePickerTarget="start"; showTimePicker=true}, boxHeight, fontSize, Modifier.weight(1f), if(isEndTimeVisible) "Start" else "Select Time")
 
-                                        // [핵심 1] AnimatedVisibility를 사용하여 시간 칸 추가 모션 구현
                                         AnimatedVisibility(
                                             visible = isEndTimeVisible,
                                             enter = fadeIn(tween(200)) + expandHorizontally(tween(200)),
@@ -287,13 +298,12 @@ private fun ScheduleSmallCircleButton(icon: androidx.compose.ui.graphics.vector.
 
 @Composable
 private fun ScheduleCategoryChip(text: String, isSelected: Boolean, onClick: () -> Unit, backgroundColor: Color = Color(0xFFF5F5F5)) {
-    // [핵심 3] Modifier.clip을 먼저 적용하여 Ripple 효과가 튀어나오지 않게 수정
     Surface(
         color = if (isSelected) Color.Black else backgroundColor,
         contentColor = if (isSelected) Color.White else Color.Black,
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier
-            .clip(RoundedCornerShape(16.dp)) // 클릭 효과가 모양을 따라가도록 clip 선행
+            .clip(RoundedCornerShape(16.dp))
             .clickable { onClick() }
     ) {
         Text(text = text, fontFamily = NotoSansKR, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
