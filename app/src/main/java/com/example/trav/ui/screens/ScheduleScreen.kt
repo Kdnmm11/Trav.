@@ -6,6 +6,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,18 +24,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
@@ -50,6 +56,8 @@ import com.example.trav.ui.viewmodel.ScheduleViewModel
 import com.example.trav.ui.viewmodel.ScheduleViewModelFactory
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+
+const val ANIMATION_DURATION = 300
 
 fun formatCityText(cityString: String?): String {
     if (cityString.isNullOrBlank()) return "City"
@@ -74,7 +82,7 @@ fun formatCityText(cityString: String?): String {
     return formattedCities.joinToString(" > ")
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ScheduleScreen(
     tripId: Int,
@@ -93,15 +101,11 @@ fun ScheduleScreen(
         factory = ScheduleViewModelFactory(database.scheduleDao(), tripId, dayNumber)
     )
 
-    val schedules by viewModel.schedules.collectAsState(initial = emptyList())
+    val schedules by viewModel.schedules.collectAsState(initial = emptyList<Schedule>())
     val dayInfo by viewModel.dayInfo.collectAsState(initial = null)
-    val focusManager = LocalFocusManager.current
-    val density = LocalDensity.current
-    val isImeVisible = WindowInsets.ime.getBottom(density) > 0
+
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    val fixedTimeAreaY = 31.1f
-    val fixedDotY = 40.2f
     val fixedTitleOffsetX = -3.9f
     val fixedTitleOffsetY = 12.2f
     val fixedTitleFontSize = 20.4f
@@ -162,12 +166,22 @@ fun ScheduleScreen(
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyStateView() }
                 } else {
                     LazyColumn(contentPadding = PaddingValues(bottom = 150.dp, top = 10.dp), modifier = Modifier.padding(horizontal = 16.dp)) {
-                        itemsIndexed(schedules) { index, schedule ->
-                            TimelineItem(
-                                schedule = schedule, isFirst = index == 0, isLast = index == schedules.lastIndex,
+                        itemsIndexed(schedules, key = { _, item -> item.id }) { index, schedule ->
+                            // Custom Layout 사용
+                            TimelineLayout(
+                                schedule = schedule,
+                                isFirst = index == 0,
+                                isLast = index == schedules.lastIndex,
+                                leftTimeH = fixedLeftTimeLineHeight,
                                 onLongClick = { selectedSchedule = schedule },
-                                titleX = fixedTitleOffsetX, titleY = fixedTitleOffsetY, titleSize = fixedTitleFontSize, titleH = fixedTitleAreaHeight,
-                                chipSize = fixedChipFontSize, leftTimeH = fixedLeftTimeLineHeight, timeAreaY = fixedTimeAreaY, dotY = fixedDotY, cardSpacing = fixedCardContentSpacing
+                                content = {
+                                    TimelineCardContent(
+                                        schedule = schedule,
+                                        titleX = fixedTitleOffsetX, titleY = fixedTitleOffsetY,
+                                        titleSize = fixedTitleFontSize, titleH = fixedTitleAreaHeight,
+                                        chipSize = fixedChipFontSize, cardSpacing = fixedCardContentSpacing
+                                    )
+                                }
                             )
                         }
                     }
@@ -200,86 +214,172 @@ fun ScheduleScreen(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+// [Custom Layout] 오른쪽(카드) 높이 == 왼쪽(선) 높이 강제 동기화
 @Composable
-fun TimelineItem(
-    schedule: Schedule, isFirst: Boolean, isLast: Boolean, onLongClick: () -> Unit,
-    titleX: Float, titleY: Float, titleSize: Float, titleH: Float,
-    chipSize: Float, leftTimeH: Float, timeAreaY: Float, dotY: Float, cardSpacing: Float
+fun TimelineLayout(
+    schedule: Schedule,
+    isFirst: Boolean,
+    isLast: Boolean,
+    leftTimeH: Float,
+    onLongClick: () -> Unit,
+    content: @Composable () -> Unit
 ) {
     var isExpanded by remember { mutableStateOf(false) }
-    val rotationState by animateFloatAsState(targetValue = if (isExpanded) 180f else 0f)
 
-    // [수정] endTime 추출 로직 통합 및 간소화
-    val displayEndTime = remember(schedule) {
-        // 교통 카테고리든 일반 카테고리든 이제 endTime 필드에 값이 들어오므로 공통 처리
-        if (schedule.endTime.isNotBlank()) {
-            // "HH:mm (Day X)" 형태에서 시간만 추출
-            schedule.endTime.split(" ").first()
-        } else ""
-    }
-    val hasEndTime = displayEndTime.isNotBlank()
-
-    Row(modifier = Modifier.fillMaxWidth().animateContentSize().height(IntrinsicSize.Min)) {
-        Box(modifier = Modifier.width(54.dp).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
-            val combinedTimeText = if (hasEndTime) "${schedule.time}\n-\n$displayEndTime" else schedule.time
-            Text(
-                text = combinedTimeText, fontFamily = NotoSansKR, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.Black, textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = timeAreaY.dp),
-                style = TextStyle(lineHeight = leftTimeH.sp, platformStyle = PlatformTextStyle(includeFontPadding = false), lineHeightStyle = LineHeightStyle(alignment = LineHeightStyle.Alignment.Center, trim = LineHeightStyle.Trim.None))
+    Layout(
+        content = {
+            // [1] 왼쪽 타임라인
+            TimelineLeftSidebar(
+                schedule = schedule,
+                isFirst = isFirst,
+                isLast = isLast,
+                leftTimeH = leftTimeH
             )
-        }
-        Box(modifier = Modifier.width(16.dp).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
-            val startY = dotY.dp
-            if (!isLast) Box(modifier = Modifier.padding(top = startY).fillMaxHeight().width(1.dp).background(Color.LightGray))
-            if (!isFirst) Box(modifier = Modifier.height(startY).width(1.dp).background(Color.LightGray))
-            Box(modifier = Modifier.padding(top = startY - 4.5.dp).size(9.dp).clip(CircleShape).background(Color.Black))
-        }
-        Spacer(modifier = Modifier.width(10.dp))
-        Surface(modifier = Modifier.weight(1f).padding(bottom = 12.dp), color = Color.White, shape = RoundedCornerShape(12.dp)) {
-            Column(modifier = Modifier.fillMaxWidth().combinedClickable(onClick = { isExpanded = !isExpanded }, onLongClick = onLongClick).padding(vertical = 12.dp).padding(start = 18.dp, end = 12.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Box(modifier = Modifier.weight(1f).height(titleH.dp), contentAlignment = Alignment.CenterStart) {
-                        Text(text = schedule.title, fontFamily = NotoSansKR, fontWeight = FontWeight.Bold, fontSize = titleSize.sp, color = Color.Black, style = TextStyle(lineHeight = titleSize.sp, platformStyle = PlatformTextStyle(includeFontPadding = false)), modifier = Modifier.offset(x = titleX.dp, y = titleY.dp))
-                    }
-                    Icon(imageVector = Icons.Default.KeyboardArrowDown, contentDescription = null, tint = Color.Gray, modifier = Modifier.rotate(rotationState).size(22.dp))
+            // [2] 오른쪽 카드
+            Surface(
+                modifier = Modifier
+                    .padding(bottom = 12.dp)
+                    .combinedClickable(onClick = { isExpanded = !isExpanded }, onLongClick = onLongClick),
+                // [중요] animateContentSize 제거!
+                // 내부의 AnimatedVisibility가 높이 변화를 주도하면 Surface 크기도 자동으로 변하고,
+                // Custom Layout이 그 크기를 감지해 선 길이도 줄여줍니다.
+                color = Color.White,
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                CompositionLocalProvider(LocalIsExpanded provides isExpanded) {
+                    content()
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                    Surface(color = Color.Black, shape = RoundedCornerShape((chipSize * 1.5f).dp), modifier = Modifier.height((chipSize * 2.2f).dp)) {
-                        Box(modifier = Modifier.padding(horizontal = (chipSize * 1.0f).dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                            Text(text = schedule.category, fontFamily = NotoSansKR, fontSize = chipSize.sp, color = Color.White, fontWeight = FontWeight.Bold, style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)))
-                        }
-                    }
+            }
+        }
+    ) { measurables, constraints ->
+        val leftWidthPx = 80.dp.roundToPx()
 
-                    // [수정] subCategory 표시 로직 단순화 (이미 필드에 "버스" 등이 들어있음)
-                    val subText = schedule.subCategory
-                    if (subText.isNotBlank() && subText != "교통") { // "교통"이라는 카테고리명과 중복되지 않을 때만 표시
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Surface(color = Color(0xFFE0E0E0), shape = RoundedCornerShape((chipSize * 1.5f).dp), modifier = Modifier.height((chipSize * 2.2f).dp)) {
-                            Box(modifier = Modifier.padding(horizontal = (chipSize * 1.0f).dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                                Text(text = subText, fontFamily = NotoSansKR, fontSize = chipSize.sp, color = Color.Black, fontWeight = FontWeight.Medium, style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)))
-                            }
-                        }
-                    }
+        // 1. 카드 측정
+        val cardConstraints = constraints.copy(minWidth = 0, maxWidth = constraints.maxWidth - leftWidthPx)
+        val cardPlaceable = measurables[1].measure(cardConstraints)
+        val cardHeight = cardPlaceable.height
+
+        // 2. 타임라인 측정 (높이를 카드 높이로 고정)
+        val leftConstraints = Constraints.fixed(width = leftWidthPx, height = cardHeight)
+        val leftPlaceable = measurables[0].measure(leftConstraints)
+
+        // 3. 배치
+        layout(width = constraints.maxWidth, height = cardHeight) {
+            leftPlaceable.place(0, 0)
+            cardPlaceable.place(leftWidthPx, 0)
+        }
+    }
+}
+
+val LocalIsExpanded = compositionLocalOf { false }
+
+@Composable
+fun TimelineCardContent(
+    schedule: Schedule,
+    titleX: Float, titleY: Float, titleSize: Float, titleH: Float,
+    chipSize: Float, cardSpacing: Float
+) {
+    val isExpanded = LocalIsExpanded.current
+    val rotationState by animateFloatAsState(targetValue = if (isExpanded) 180f else 0f, animationSpec = tween(ANIMATION_DURATION))
+
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp).padding(start = 18.dp, end = 12.dp)) {
+        // 헤더
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.weight(1f).height(titleH.dp), contentAlignment = Alignment.CenterStart) {
+                Text(
+                    text = schedule.title,
+                    fontFamily = NotoSansKR, fontWeight = FontWeight.Bold, fontSize = titleSize.sp, color = Color.Black,
+                    style = TextStyle(lineHeight = titleSize.sp, platformStyle = PlatformTextStyle(includeFontPadding = false)),
+                    modifier = Modifier.offset(x = titleX.dp, y = titleY.dp)
+                )
+            }
+            Icon(Icons.Default.KeyboardArrowDown, null, tint = Color.Gray, modifier = Modifier.rotate(rotationState).size(22.dp))
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // 칩
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+            Surface(color = Color.Black, shape = RoundedCornerShape((chipSize * 1.5f).dp), modifier = Modifier.height((chipSize * 2.2f).dp)) {
+                Box(modifier = Modifier.padding(horizontal = (chipSize * 1.0f).dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                    Text(text = schedule.category, fontFamily = NotoSansKR, fontSize = chipSize.sp, color = Color.White, fontWeight = FontWeight.Bold, style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)))
                 }
-                AnimatedVisibility(visible = isExpanded, enter = expandVertically(tween(300)) + fadeIn(tween(300)), exit = shrinkVertically(tween(300)) + fadeOut(tween(300))) {
-                    Column(modifier = Modifier.padding(top = cardSpacing.dp)) {
-                        if (schedule.location.isNotBlank()) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.LocationOn, null, tint = Color.Gray, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(text = schedule.location.replace("->", " > "), fontSize = 13.sp, color = Color.DarkGray, fontFamily = NotoSansKR)
-                            }
-                            Spacer(modifier = Modifier.height(cardSpacing.dp))
-                        }
-                        if (schedule.memo.isNotBlank()) {
-                            Text(text = schedule.memo, fontSize = 13.sp, color = Color(0xFF444444), fontFamily = NotoSansKR, lineHeight = 20.sp, modifier = Modifier.fillMaxWidth())
-                        }
+            }
+            if (schedule.subCategory.isNotBlank() && schedule.subCategory != "교통") {
+                Spacer(modifier = Modifier.width(6.dp))
+                Surface(color = Color(0xFFE0E0E0), shape = RoundedCornerShape((chipSize * 1.5f).dp), modifier = Modifier.height((chipSize * 2.2f).dp)) {
+                    Box(modifier = Modifier.padding(horizontal = (chipSize * 1.0f).dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                        Text(text = schedule.subCategory, fontFamily = NotoSansKR, fontSize = chipSize.sp, color = Color.Black, fontWeight = FontWeight.Medium, style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)))
                     }
                 }
             }
         }
+
+        // [수정 완료] if문 대신 AnimatedVisibility 사용
+        // shrinkVertically(Alignment.Top): 아래쪽이 위로 딸려 올라가면서 줄어듦 (Slide Up)
+        // fadeOut: 서서히 사라짐
+        // 이 애니메이션이 진행되는 동안 카드의 높이가 변하고 -> Custom Layout이 감지 -> 선 길이도 줄어듦 (완벽 연동)
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = expandVertically(tween(ANIMATION_DURATION), expandFrom = Alignment.Top) + fadeIn(tween(ANIMATION_DURATION)),
+            exit = shrinkVertically(tween(ANIMATION_DURATION), shrinkTowards = Alignment.Top) + fadeOut(tween(ANIMATION_DURATION))
+        ) {
+            Column(modifier = Modifier.padding(top = cardSpacing.dp)) {
+                if (schedule.location.isNotBlank()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.LocationOn, null, tint = Color.Gray, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(text = schedule.location.replace("->", " > "), fontSize = 13.sp, color = Color.DarkGray, fontFamily = NotoSansKR)
+                    }
+                    Spacer(modifier = Modifier.height(cardSpacing.dp))
+                }
+                if (schedule.memo.isNotBlank()) {
+                    Text(text = schedule.memo, fontSize = 13.sp, color = Color(0xFF444444), fontFamily = NotoSansKR, lineHeight = 20.sp, modifier = Modifier.fillMaxWidth())
+                }
+            }
+        }
+    }
+}
+
+// 왼쪽 타임라인 (Canvas로 그리기) - 높이는 부모 Layout에서 결정됨
+@Composable
+fun TimelineLeftSidebar(
+    schedule: Schedule,
+    isFirst: Boolean,
+    isLast: Boolean,
+    leftTimeH: Float
+) {
+    val displayEndTime = remember(schedule) { if (schedule.endTime.isNotBlank()) schedule.endTime.split(" ").first() else "" }
+    val hasEndTime = displayEndTime.isNotBlank()
+    val timeText = if (hasEndTime) "${schedule.time}\n-\n$displayEndTime" else schedule.time
+
+    val textMeasurer = rememberTextMeasurer()
+    val timeTextStyle = TextStyle(
+        fontFamily = NotoSansKR, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.Black, textAlign = TextAlign.Center,
+        lineHeight = leftTimeH.sp, platformStyle = PlatformTextStyle(includeFontPadding = false),
+        lineHeightStyle = LineHeightStyle(alignment = LineHeightStyle.Alignment.Center, trim = LineHeightStyle.Trim.None)
+    )
+
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val dotX = 54.dp.toPx() + 8.dp.toPx()
+        val dotY = 40.2.dp.toPx()
+
+        // 텍스트
+        val measuredText = textMeasurer.measure(timeText, timeTextStyle)
+        drawText(measuredText, topLeft = Offset((54.dp.toPx() - measuredText.size.width) / 2, 31.1.dp.toPx()))
+
+        // 선
+        val lineStrokeWidth = 1.dp.toPx()
+        val lineColor = Color(0xFFE0E0E0)
+
+        if (!isLast) {
+            drawLine(lineColor, start = Offset(dotX, dotY), end = Offset(dotX, size.height), strokeWidth = lineStrokeWidth)
+        }
+        if (!isFirst) {
+            drawLine(lineColor, start = Offset(dotX, 0f), end = Offset(dotX, dotY), strokeWidth = lineStrokeWidth)
+        }
+
+        // 점
+        drawCircle(Color.Black, radius = 4.5.dp.toPx(), center = Offset(dotX, dotY))
     }
 }
 

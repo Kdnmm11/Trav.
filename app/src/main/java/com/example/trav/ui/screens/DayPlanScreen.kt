@@ -125,7 +125,6 @@ fun DayPlanScreen(trip: Trip?) {
         }
     }
 
-    // 순서 변경: startViewDay 부터 시작
     val displayDays = remember(allDays, startViewDay) {
         val (past, upcoming) = allDays.partition { it.first < startViewDay }
         upcoming + past
@@ -147,23 +146,26 @@ fun DayPlanScreen(trip: Trip?) {
         } else {
             Scaffold(
                 containerColor = Color.Transparent,
+                // [수정] 상단(Top)과 좌우(Horizontal) 시스템 바 영역만 적용하고, 하단(Bottom)은 무시하도록 설정
+                // 이렇게 하면 상태바 여백은 확보되어 제목이 가려지지 않고, 하단은 화면 끝까지 확장됩니다.
+                contentWindowInsets = WindowInsets.systemBars.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top),
                 floatingActionButton = {
                     FloatingActionButton(
                         onClick = { showEditSheet = true },
                         containerColor = Color.Black,
                         contentColor = Color.White,
-                        shape = RoundedCornerShape(16.dp),
+                        shape = CircleShape,
                         elevation = FloatingActionButtonDefaults.elevation(0.dp)
                     ) {
                         Icon(Icons.Default.Edit, contentDescription = "Edit Trip")
                     }
                 }
             ) { padding ->
-                Box(modifier = Modifier.fillMaxSize()) {
+                // padding.calculateTopPadding()이 이제 정상적인 상태바 높이를 반환합니다.
+                Box(modifier = Modifier.fillMaxSize().padding(top = padding.calculateTopPadding())) {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(padding)
                             .padding(horizontal = screenPadding)
                     ) {
                         Row(
@@ -197,7 +199,8 @@ fun DayPlanScreen(trip: Trip?) {
                             columns = GridCells.Fixed(2),
                             horizontalArrangement = Arrangement.spacedBy(gridSpacing),
                             verticalArrangement = Arrangement.spacedBy(gridSpacing),
-                            contentPadding = PaddingValues(bottom = 90.dp)
+                            // 하단 여백: 네비게이션 바를 고려하여 적절히 띄워줍니다.
+                            contentPadding = PaddingValues(bottom = 80.dp)
                         ) {
                             items(displayDays) { (dayNumber, date) ->
                                 val daysSchedules = allSchedules.filter { it.dayNumber == dayNumber }
@@ -287,9 +290,8 @@ fun GridDayCard(
     val dayOfWeek = date.dayOfWeek.getDisplayName(JavaTextStyle.SHORT, Locale.ENGLISH).uppercase()
     val formattedDate = date.format(DateTimeFormatter.ofPattern("MM.dd"))
 
-    // [핵심 변경] 빛바랜 느낌 (White 유지 + Alpha 0.3)
     val contentAlpha = if (isPast) 0.3f else 1f
-    val cardColor = Color.White // 회색 배경 안 씀
+    val cardColor = Color.White
     val borderColor = if (isPast) Color.LightGray.copy(alpha = 0.5f) else Color.Black
 
     Card(
@@ -297,7 +299,7 @@ fun GridDayCard(
             .fillMaxWidth()
             .aspectRatio(cardRatio)
             .clickable { onClick() }
-            .alpha(contentAlpha), // 전체 투명도 적용
+            .alpha(contentAlpha),
         colors = CardDefaults.cardColors(containerColor = cardColor),
         border = BorderStroke(1.dp, borderColor),
         shape = RoundedCornerShape(0.dp),
@@ -351,7 +353,6 @@ fun GridDayCard(
                     }
                 }
 
-                // 일정 리스트
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()

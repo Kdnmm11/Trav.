@@ -2,11 +2,14 @@ package com.example.trav.ui.screens
 
 import android.app.Activity
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -61,7 +64,10 @@ import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.min
 
-// 도시 텍스트 포맷 함수
+// [설정] 애니메이션 속도 조절
+const val POPUP_ANIM_DURATION = 150
+const val SCREEN_ENTER_DURATION = 200
+
 fun formatCityTextTable(cityString: String?): String {
     if (cityString.isNullOrBlank()) return "-"
     val cities = cityString.split(",").map { it.trim() }.filter { it.isNotBlank() }
@@ -88,38 +94,50 @@ fun formatCityTextTable(cityString: String?): String {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TimeTableScreen(trip: Trip) {
-    // [설정] 팝업 애니메이션 속도
-    val popupAnimDuration = 150
-
     val context = LocalContext.current
     val database = AppDatabase.getDatabase(context)
     val scheduleDao = database.scheduleDao()
 
-    val allSchedules by scheduleDao.getAllSchedules(trip.id).collectAsState(initial = null)
-    val allDayInfos by scheduleDao.getAllDayInfos(trip.id).collectAsState(initial = null)
+    val schedulesState = scheduleDao.getAllSchedules(trip.id).collectAsState(initial = null)
+    val dayInfosState = scheduleDao.getAllDayInfos(trip.id).collectAsState(initial = null)
 
-    // [로딩 가드] 데이터 로드 전에는 빈 배경만 노출
-    if (allSchedules == null || allDayInfos == null) {
-        Box(modifier = Modifier.fillMaxSize().background(Color(0xFFFAFAFA)))
+    val rawSchedules = schedulesState.value
+    val rawDayInfos = dayInfosState.value
+    val appBackgroundColor = Color(0xFFFAFAFA)
+
+    // 로딩 대기: 데이터가 없으면 빈 화면 유지
+    if (rawSchedules == null || rawDayInfos == null) {
+        Box(modifier = Modifier.fillMaxSize().background(appBackgroundColor))
         return
     }
 
-    val schedules = allSchedules!!
-    val dayInfos = allDayInfos!!
+    val allSchedules = rawSchedules
+    val allDayInfos = rawDayInfos
 
     val originalStart = LocalDate.parse(trip.startDate)
     val originalEnd = LocalDate.parse(trip.endDate)
     val originalDuration = ChronoUnit.DAYS.between(originalStart, originalEnd).toInt() + 1
+
     val totalStartDayNum = 1 - trip.preDays
     val totalEndDayNum = originalDuration + trip.postDays
     val dayRange = (totalStartDayNum..totalEndDayNum).toList()
+
     val minDay = 1 - trip.preDays
     val currentStartDay = if (trip.startViewDay < minDay) minDay else trip.startViewDay
-    val reorderedDays = (dayRange.filter { it >= currentStartDay } + dayRange.filter { it < currentStartDay })
+
+    val futureDays = dayRange.filter { it >= currentStartDay }
+    val pastDays = dayRange.filter { it < currentStartDay }
+    val reorderedDays = futureDays + pastDays
 
     var selectedSchedule by remember { mutableStateOf<Schedule?>(null) }
     var selectedDayNum by remember { mutableStateOf<Int?>(null) }
-    var isPopupDismissing by remember { mutableStateOf(false) }
+
+    var lastDismissTime by remember { mutableLongStateOf(0L) }
+
+    val screenAlpha = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        screenAlpha.animateTo(1f, animationSpec = tween(SCREEN_ENTER_DURATION))
+    }
 
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
@@ -132,18 +150,29 @@ fun TimeTableScreen(trip: Trip) {
     val hourHeight = 40.dp
     val timeLabelWidth = 22.dp
 
-    val (startHour, endHour) = remember(schedules) {
+    val (startHour, endHour) = remember(allSchedules) {
         val defaultStart = 8
         val defaultEnd = 24
-        if (schedules.isEmpty()) defaultStart to defaultEnd
-        else {
-            val adjustedHours = schedules.map {
+        if (allSchedules.isEmpty()) {
+            defaultStart to defaultEnd
+        } else {
+            val adjustedHours = allSchedules.map {
                 val h = parseTime(it.time).first
                 if (h < 5) h + 24 else h
             }
-            val minH = min(defaultStart, adjustedHours.minOrNull() ?: defaultStart)
-            val maxH = maxOf(defaultEnd, (schedules.maxOfOrNull { parseTime(it.time).first } ?: 23) + 1)
-            minH to maxH
+            val minScheduleHour = adjustedHours.minOrNull() ?: defaultStart
+            val maxScheduleHour = allSchedules.maxOfOrNull {
+                val startH = parseTime(it.time).first
+                val adjStartH = if (startH < 5) startH + 24 else startH
+                if (it.endTime.isNotBlank()) {
+                    val endH = parseTime(it.endTime).first
+                    val adjEndH = if (endH < 5) endH + 24 else endH
+                    if (adjEndH < adjStartH) adjEndH + 24 else adjEndH
+                } else { adjStartH }
+            }?.toInt() ?: (defaultEnd - 1)
+            val finalStart = min(defaultStart, minScheduleHour)
+            val finalEnd = kotlin.math.max(defaultEnd, maxScheduleHour + 1)
+            finalStart to finalEnd
         }
     }
 
@@ -151,7 +180,6 @@ fun TimeTableScreen(trip: Trip) {
     val horizontalLazyState = rememberLazyListState()
     val snapBehavior = rememberSnapFlingBehavior(lazyListState = horizontalLazyState)
 
-    val appBackgroundColor = Color(0xFFFAFAFA)
     val timeColumnColor = Color(0xFFF7F7F7)
 
     val view = LocalView.current
@@ -163,8 +191,8 @@ fun TimeTableScreen(trip: Trip) {
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(appBackgroundColor)) {
-        Column(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().alpha(screenAlpha.value)) {
+        Column(modifier = Modifier.fillMaxSize().background(appBackgroundColor)) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 5.7.dp, bottom = 10.dp, start = 18.6.dp, end = 18.6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
@@ -196,12 +224,12 @@ fun TimeTableScreen(trip: Trip) {
 
                 Box(modifier = Modifier.weight(1f)) {
                     LazyRow(state = horizontalLazyState, flingBehavior = snapBehavior, modifier = Modifier.fillMaxWidth()) {
-                        items(reorderedDays, key = { it }) { dayNum ->
+                        items(reorderedDays) { dayNum ->
                             val isPast = dayNum < currentStartDay
                             val date = originalStart.plusDays((dayNum - 1).toLong())
                             val dayName = date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.ENGLISH).uppercase()
                             val dayStr = date.format(DateTimeFormatter.ofPattern("MM.dd"))
-                            val dayInfo = dayInfos.find { it.dayNumber == dayNum }
+                            val dayInfo = allDayInfos.find { it.dayNumber == dayNum }
 
                             val cityText = formatCityTextTable(dayInfo?.city)
                             val stayText = dayInfo?.accommodation?.takeIf { it.isNotBlank() } ?: "-"
@@ -211,7 +239,14 @@ fun TimeTableScreen(trip: Trip) {
                                 dayNum > originalDuration -> "After ${dayNum - originalDuration}"
                                 else -> "Day $dayNum"
                             }
-                            val daySchedules = schedules.filter { it.dayNumber == dayNum }
+
+                            // [정렬] 시간순 정렬 (색상 토글 로직을 위해 필수)
+                            val daySchedules = allSchedules.filter { it.dayNumber == dayNum }
+                                .sortedWith(compareBy {
+                                    val (h, m) = parseTime(it.time)
+                                    val adjH = if (h < 5) h + 24 else h
+                                    adjH * 60 + m
+                                })
 
                             Column(modifier = Modifier.width(dateColWidth).alpha(if (isPast) 0.3f else 1f)) {
                                 Column(modifier = Modifier.fillMaxWidth().height(42.6.dp).background(Color.Black), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -224,10 +259,15 @@ fun TimeTableScreen(trip: Trip) {
                                         .fillMaxWidth()
                                         .height(infoHeaderHeight)
                                         .background(Color(0xFFF2F2F2))
-                                        .pointerInput(dayNum, isPopupDismissing) {
+                                        .pointerInput(dayNum, selectedDayNum) {
                                             detectTapGestures {
-                                                if (!isPopupDismissing) {
-                                                    selectedDayNum = if (selectedDayNum == dayNum) null else dayNum
+                                                val now = System.currentTimeMillis()
+                                                if (now - lastDismissTime > 500) {
+                                                    if (selectedDayNum == dayNum) {
+                                                        selectedDayNum = null
+                                                    } else {
+                                                        selectedDayNum = dayNum
+                                                    }
                                                 }
                                             }
                                         },
@@ -247,47 +287,25 @@ fun TimeTableScreen(trip: Trip) {
                                         }
                                     }
 
-                                    if (selectedDayNum == dayNum) {
+                                    val isSelected = (selectedDayNum == dayNum)
+                                    val transition = updateTransition(targetState = isSelected, label = "DayInfoPopup")
+
+                                    if (transition.currentState || transition.targetState) {
                                         Popup(
                                             alignment = Alignment.TopCenter,
-                                            offset = IntOffset(0, with(density) { (infoHeaderHeight + (-2.7).dp).roundToPx() }),
-                                            onDismissRequest = { selectedDayNum = null },
+                                            offset = IntOffset(0, with(density) { (infoHeaderHeight - 3.0.dp).roundToPx() }),
+                                            onDismissRequest = {
+                                                lastDismissTime = System.currentTimeMillis()
+                                                selectedDayNum = null
+                                            },
                                             properties = PopupProperties(dismissOnClickOutside = true)
                                         ) {
-                                            // [해결] Popup이 생성된 직후 위치 재계산을 방지하기 위해 Box 내부에서 상태 제어
-                                            var startFade by remember { mutableStateOf(false) }
-                                            LaunchedEffect(Unit) {
-                                                // 아주 짧은 딜레이를 주어 Popup의 Measure 단계가 끝난 후 페이드를 시작함 (슬라이드 현상 방지)
-                                                delay(10)
-                                                startFade = true
-                                            }
-
-                                            Box(modifier = Modifier.wrapContentSize(), contentAlignment = Alignment.Center) {
-                                                androidx.compose.animation.AnimatedVisibility(
-                                                    visible = startFade && selectedDayNum == dayNum,
-                                                    enter = fadeIn(animationSpec = tween(popupAnimDuration)),
-                                                    exit = fadeOut(animationSpec = tween(popupAnimDuration))
-                                                ) {
-                                                    Card(
-                                                        colors = CardDefaults.cardColors(containerColor = Color.Black),
-                                                        shape = RoundedCornerShape(8.dp),
-                                                        modifier = Modifier.widthIn(max = 200.dp).padding(4.dp)
-                                                    ) {
-                                                        Column(modifier = Modifier.padding(12.dp)) {
-                                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                                Icon(Icons.Default.LocationOn, null, tint = Color.White, modifier = Modifier.size(12.dp))
-                                                                Spacer(modifier = Modifier.width(6.dp))
-                                                                Text(dayInfo?.city?.takeIf { it.isNotBlank() } ?: "-", color = Color.White, fontSize = 11.sp, fontFamily = NotoSansKR)
-                                                            }
-                                                            Spacer(modifier = Modifier.height(8.dp))
-                                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                                Icon(Icons.Default.Home, null, tint = Color.White, modifier = Modifier.size(12.dp))
-                                                                Spacer(modifier = Modifier.width(6.dp))
-                                                                Text(dayInfo?.accommodation?.takeIf { it.isNotBlank() } ?: "-", color = Color.White, fontSize = 11.sp, fontFamily = NotoSansKR)
-                                                            }
-                                                        }
-                                                    }
-                                                }
+                                            transition.AnimatedVisibility(
+                                                visible = { it },
+                                                enter = fadeIn(tween(POPUP_ANIM_DURATION)) + scaleIn(initialScale = 0.95f, animationSpec = tween(POPUP_ANIM_DURATION)),
+                                                exit = fadeOut(tween(POPUP_ANIM_DURATION)) + scaleOut(targetScale = 0.95f, animationSpec = tween(POPUP_ANIM_DURATION))
+                                            ) {
+                                                DayInfoPopupContent(dayInfo = dayInfo)
                                             }
                                         }
                                     }
@@ -299,9 +317,22 @@ fun TimeTableScreen(trip: Trip) {
                                             HorizontalDivider(color = Color(0xFFF5F5F5), thickness = 1.dp, modifier = Modifier.offset(y = hourHeight * i))
                                         }
                                     }
+
+                                    // [로직] 색상 교차 상태 변수
+                                    var lastEndMins = -1
+                                    var isGrayMode = false
+
                                     daySchedules.forEach { schedule ->
                                         val (startH, startM) = parseTime(schedule.time)
                                         val adjStartH = if (startH < 5) startH + 24 else startH
+                                        val currentStartMins = adjStartH * 60 + startM
+
+                                        // 연속된 일정(딱 맞물림)이면 색상 모드 토글
+                                        if (lastEndMins != -1 && currentStartMins == lastEndMins) {
+                                            isGrayMode = !isGrayMode
+                                        } else {
+                                            isGrayMode = false // 갭이 있으면 기본 검은색 리셋
+                                        }
 
                                         val durationMins = if (schedule.endTime.isNotBlank()) {
                                             val (endH, endM) = parseTime(schedule.endTime.split(" ").first())
@@ -312,81 +343,56 @@ fun TimeTableScreen(trip: Trip) {
                                             (totalEnd - totalStart).toFloat()
                                         } else { 60f }
 
+                                        // 다음 비교를 위해 끝나는 시간 저장
+                                        lastEndMins = (currentStartMins + durationMins.toInt())
+
                                         if (adjStartH >= startHour) {
                                             val topOffset = (adjStartH - startHour) * hourHeight.value + (startM.toFloat() / 60f) * hourHeight.value
                                             val blockHeight = (durationMins / 60f) * hourHeight.value
 
-                                            Box(modifier = Modifier.padding(horizontal = 2.dp).offset(y = topOffset.dp).width(dateColWidth - 4.dp).height(blockHeight.dp)) {
+                                            // [로직] 높이에서 1dp 빼기 (시각적 분리)
+                                            val displayHeight = if (blockHeight > 1.0f) (blockHeight - 2).dp else blockHeight.dp
+
+                                            // [로직] 색상 결정
+                                            val containerColor = if (isGrayMode) Color(0xFFE0E0E0) else Color.Black.copy(alpha = 0.85f)
+                                            val contentColor = if (isGrayMode) Color.Black else Color.White
+
+                                            Box(modifier = Modifier.padding(horizontal = 2.dp).offset(y = topOffset.dp).width(dateColWidth - 4.dp).height(displayHeight)) {
                                                 ScheduleBlock(
-                                                    schedule = schedule, heightDp = blockHeight.dp,
+                                                    schedule = schedule,
+                                                    heightDp = displayHeight,
+                                                    containerColor = containerColor,
+                                                    contentColor = contentColor,
                                                     modifier = Modifier.fillMaxSize().clickable { selectedSchedule = schedule }
                                                 )
 
-                                                if (selectedSchedule == schedule) {
+                                                val isScheduleSelected = (selectedSchedule == schedule)
+                                                val scheduleTransition = updateTransition(targetState = isScheduleSelected, label = "SchedulePopup")
+
+                                                if (scheduleTransition.currentState || scheduleTransition.targetState) {
                                                     val isUpperHalf = (topOffset + blockHeight / 2) < (hourHeight.value * (endHour - startHour) / 2)
 
                                                     Popup(
                                                         alignment = if (isUpperHalf) Alignment.TopStart else Alignment.BottomStart,
-                                                        offset = IntOffset(x = 0, y = if (isUpperHalf) with(density) { blockHeight.dp.roundToPx() } else 0),
+                                                        offset = IntOffset(
+                                                            x = 0,
+                                                            y = with(density) {
+                                                                if (isUpperHalf) {
+                                                                    displayHeight.roundToPx()
+                                                                } else {
+                                                                    -displayHeight.roundToPx()
+                                                                }
+                                                            }
+                                                        ),
                                                         onDismissRequest = { selectedSchedule = null },
                                                         properties = PopupProperties(focusable = true, dismissOnClickOutside = true)
                                                     ) {
-                                                        var startScheduleFade by remember { mutableStateOf(false) }
-                                                        LaunchedEffect(Unit) {
-                                                            delay(10)
-                                                            startScheduleFade = true
-                                                        }
-
-                                                        Box(modifier = Modifier.wrapContentSize()) {
-                                                            androidx.compose.animation.AnimatedVisibility(
-                                                                visible = startScheduleFade && selectedSchedule == schedule,
-                                                                enter = fadeIn(animationSpec = tween(popupAnimDuration)),
-                                                                exit = fadeOut(animationSpec = tween(popupAnimDuration))
-                                                            ) {
-                                                                Card(
-                                                                    modifier = Modifier.width(230.dp),
-                                                                    shape = RoundedCornerShape(12.dp),
-                                                                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                                                                    elevation = CardDefaults.cardElevation(0.dp),
-                                                                    border = BorderStroke(1.dp, Color.Black.copy(alpha = 0.1f))
-                                                                ) {
-                                                                    Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 14.dp)) {
-                                                                        Text(text = selectedSchedule!!.title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.Black, fontFamily = NotoSansKR)
-                                                                        HorizontalDivider(modifier = Modifier.padding(top = 4.dp), color = Color(0xFFEEEEEE))
-
-                                                                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                                                                            val timeDisp = if(selectedSchedule!!.endTime.isNotBlank()) selectedSchedule!!.endTime.split(" ").first() else ""
-                                                                            val timeText = if(timeDisp.isNotBlank()) "${selectedSchedule!!.time} - $timeDisp" else selectedSchedule!!.time
-                                                                            Text(text = timeText, fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Bold, fontFamily = NotoSansKR)
-
-                                                                            Row(horizontalArrangement = Arrangement.End) {
-                                                                                Surface(color = Color.Black, shape = RoundedCornerShape(4.dp)) {
-                                                                                    Text(text = selectedSchedule!!.category, fontSize = 8.sp, color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp))
-                                                                                }
-                                                                                if (selectedSchedule!!.subCategory.isNotBlank() && selectedSchedule!!.subCategory != "교통") {
-                                                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                                                    Surface(color = Color(0xFFE0E0E0), shape = RoundedCornerShape(4.dp)) {
-                                                                                        Text(text = selectedSchedule!!.subCategory, fontSize = 8.sp, color = Color.Black, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp))
-                                                                                    }
-                                                                                }
-                                                                            }
-                                                                        }
-
-                                                                        if (selectedSchedule!!.location.isNotBlank()) {
-                                                                            Spacer(modifier = Modifier.height(8.dp))
-                                                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                                                Icon(Icons.Default.LocationOn, null, tint = Color.Gray, modifier = Modifier.size(12.dp))
-                                                                                Spacer(modifier = Modifier.width(4.dp))
-                                                                                Text(text = selectedSchedule!!.location.replace("->", " > "), fontSize = 12.sp, color = Color.DarkGray, fontFamily = NotoSansKR)
-                                                                            }
-                                                                        }
-                                                                        if (selectedSchedule!!.memo.isNotBlank()) {
-                                                                            Spacer(modifier = Modifier.height(4.dp))
-                                                                            Text(text = "- ${selectedSchedule!!.memo}", fontSize = 12.sp, color = Color.Gray, lineHeight = 16.sp, fontFamily = NotoSansKR)
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
+                                                        scheduleTransition.AnimatedVisibility(
+                                                            visible = { it },
+                                                            enter = fadeIn(tween(POPUP_ANIM_DURATION)) + scaleIn(initialScale = 0.95f, animationSpec = tween(POPUP_ANIM_DURATION)),
+                                                            exit = fadeOut(tween(POPUP_ANIM_DURATION)) + scaleOut(targetScale = 0.95f, animationSpec = tween(POPUP_ANIM_DURATION))
+                                                        ) {
+                                                            SchedulePopupContent(selectedSchedule = schedule)
                                                         }
                                                     }
                                                 }
@@ -402,7 +408,7 @@ fun TimeTableScreen(trip: Trip) {
                         val arrowTopPadding = (headerTotalHeight - 24.dp) / 2
                         Icon(imageVector = Icons.Default.KeyboardArrowRight, contentDescription = null, tint = Color.Gray, modifier = Modifier.align(Alignment.TopEnd).padding(top = arrowTopPadding).size(24.dp).clickable { coroutineScope.launch {
                             if (reorderedDays.isNotEmpty()) {
-                                val targetIndex = reorderedDays.lastIndex
+                                val targetIndex = if (futureDays.isNotEmpty()) futureDays.lastIndex else reorderedDays.lastIndex
                                 val viewportWidth = horizontalLazyState.layoutInfo.viewportSize.width
                                 val itemWidthPx = with(density) { dateColWidth.roundToPx() }
                                 val targetEndPx = (targetIndex + 1) * itemWidthPx
@@ -429,19 +435,95 @@ fun parseTime(timeStr: String): Pair<Int, Int> {
 }
 
 @Composable
-fun ScheduleBlock(schedule: Schedule, heightDp: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier) {
+fun ScheduleBlock(
+    schedule: Schedule,
+    heightDp: androidx.compose.ui.unit.Dp,
+    containerColor: Color,
+    contentColor: Color,
+    modifier: Modifier = Modifier
+) {
     Card(
         modifier = modifier,
         shape = RoundedCornerShape(4.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.85f)),
+        colors = CardDefaults.cardColors(containerColor = containerColor),
         elevation = CardDefaults.cardElevation(2.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize().padding(4.dp)) {
             val displayEnd = if(schedule.endTime.isNotBlank()) schedule.endTime.split(" ").first() else ""
             val timeText = if (displayEnd.isNotBlank()) "${schedule.time}-$displayEnd" else schedule.time
-            Text(text = timeText, fontSize = 9.sp, color = Color.White, fontWeight = FontWeight.Bold, fontFamily = NotoSansKR, style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)))
+            Text(text = timeText, fontSize = 9.sp, color = contentColor, fontWeight = FontWeight.Bold, fontFamily = NotoSansKR, style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)))
             if (heightDp > 25.dp) {
-                Text(text = schedule.title, fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Normal, fontFamily = NotoSansKR, maxLines = 1, overflow = TextOverflow.Ellipsis, lineHeight = 12.sp, style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)))
+                Text(text = schedule.title, fontSize = 10.sp, color = contentColor, fontWeight = FontWeight.Normal, fontFamily = NotoSansKR, maxLines = 1, overflow = TextOverflow.Ellipsis, lineHeight = 12.sp, style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)))
+            }
+        }
+    }
+}
+
+@Composable
+private fun DayInfoPopupContent(dayInfo: DayInfo?) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color.Black),
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.widthIn(max = 200.dp).padding(4.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.LocationOn, null, tint = Color.White, modifier = Modifier.size(12.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(dayInfo?.city?.ifBlank { "-" } ?: "-", color = Color.White, fontSize = 11.sp, fontFamily = NotoSansKR)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Home, null, tint = Color.White, modifier = Modifier.size(12.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(dayInfo?.accommodation?.ifBlank { "-" } ?: "-", color = Color.White, fontSize = 11.sp, fontFamily = NotoSansKR)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SchedulePopupContent(selectedSchedule: Schedule) {
+    Card(
+        modifier = Modifier.width(230.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(0.dp),
+        border = BorderStroke(1.dp, Color.Black.copy(alpha = 0.1f))
+    ) {
+        Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 14.dp)) {
+            Text(text = selectedSchedule.title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.Black, fontFamily = NotoSansKR)
+            HorizontalDivider(modifier = Modifier.padding(top = 4.dp), color = Color(0xFFEEEEEE))
+
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                val timeDisp = if(selectedSchedule.endTime.isNotBlank()) selectedSchedule.endTime.split(" ").first() else ""
+                val timeText = if(timeDisp.isNotBlank()) "${selectedSchedule.time} - $timeDisp" else selectedSchedule.time
+                Text(text = timeText, fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Bold, fontFamily = NotoSansKR)
+
+                Row(horizontalArrangement = Arrangement.End) {
+                    Surface(color = Color.Black, shape = RoundedCornerShape(4.dp)) {
+                        Text(text = selectedSchedule.category, fontSize = 8.sp, color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp))
+                    }
+                    if (selectedSchedule.subCategory.isNotBlank() && selectedSchedule.subCategory != "교통") {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Surface(color = Color(0xFFE0E0E0), shape = RoundedCornerShape(4.dp)) {
+                            Text(text = selectedSchedule.subCategory, fontSize = 8.sp, color = Color.Black, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp))
+                        }
+                    }
+                }
+            }
+
+            if (selectedSchedule.location.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.LocationOn, null, tint = Color.Gray, modifier = Modifier.size(12.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = selectedSchedule.location.replace("->", " > "), fontSize = 12.sp, color = Color.DarkGray, fontFamily = NotoSansKR)
+                }
+            }
+            if (selectedSchedule.memo.isNotBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(text = "- ${selectedSchedule.memo}", fontSize = 12.sp, color = Color.Gray, lineHeight = 16.sp, fontFamily = NotoSansKR)
             }
         }
     }
